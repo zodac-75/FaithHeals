@@ -1,0 +1,11 @@
+## Interface: 120000, 120001, 120005, 16001
+## Title: FaithHeals
+## Notes: HealBot-style party and raid frames with click-casting, 12-button MMO mouse support and themes.
+## IconTexture: Interface\AddOns\FaithHeals\Media\Icon
+## Version: 1.1.0
+## SavedVariables: FaithHealsDB
+
+Core.lua
+Frames.lua
+Template.xml
+Config.lua

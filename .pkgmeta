@@ -1,0 +1,3 @@
+package-as: FaithHeals
+ignore:
+  - README.md

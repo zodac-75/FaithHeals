@@ -1,0 +1,7 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <Button name="FaithHealsUnitTemplate" inherits="SecureUnitButtonTemplate" virtual="true">
+    <Scripts>
+      <OnLoad>FaithHeals_UnitOnLoad(self)</OnLoad>
+    </Scripts>
+  </Button>
+</Ui>
