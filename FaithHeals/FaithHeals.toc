@@ -12,4 +12,5 @@ Core.lua
 Frames.lua
 Test.lua
 Template.xml
+Spells.lua
 Config.lua

@@ -6,19 +6,21 @@ CurseForge: [FaithHeals](https://www.curseforge.com/wow/addons/faithheals) (proj
 
 ## Features
 
-- Party and raid frames that appear automatically
-- Click-casting like HealBot's Spells tab: bind spells to Left, Right, Middle, Button 4/5 and the mouse wheel, with seven modifier combinations each
-- Built for 12-button MMO mice: all twelve thumb buttons can cast on the bar under your cursor, and keep their normal action-bar job everywhere else
+- Party and raid frames that appear automatically, with their own size for Solo, Party and Raid 10/20/25/40
+- Click-casting: pick a spell from your spellbook (or Target, Set focus, Assist, Unit menu, Trade) and press the mouse button or key you want, with Alt/Ctrl/Shift combinations; "Max" rank or a fixed rank
+- Built for 12-button MMO mice: thumb buttons and the wheel cast on the bar under your cursor, and keep their normal job everywhere else
 - Hover a bar to see what every button casts with the modifier you are holding
-- Your own HoTs with timers, dispellable-debuff border, target highlight and range fade
-- Four themes, or pick bar colour, name colour and texture yourself
-- Layout: columns or rows, sort by group, role or name, bars per column, spacing
+- Health %, incoming heals, target highlight, range fade, raid markers
+- Icons with one toggle each: your HoTs, buffs, debuffs (all or dispellable), each with its own max and size
+- Four themes, plus font, text size, colours, outline, shadow, background and fill direction
 - Test bars (`/fh test 20`) to set up look and layout without a group
 - Drag to move, drag the corner to resize, mouse wheel to scale
 
 ## Use
 
-Type `/fh`, pick a button on the left and type a spell name for each combination. Ships with a Restoration Druid setup, but works for any healer.
+Type `/fh`. On the **Spells** tab press New, pick a spell, then "Bind a button" and press it.
+**Look & layout** and **Bars & text** set how the bars look. Press Save & Apply.
+Ships with a Restoration Druid setup, but works for any healer.
 
 | Command | What it does |
 |---|---|
@@ -26,6 +28,8 @@ Type `/fh`, pick a button on the left and type a spell name for each combination
 | `/fh test 20` | Show test bars |
 | `/fh unlock` / `/fh lock` | Move and resize the frames |
 | `/fh scale 1.2` | Scale everything |
+| `/fh debug`, `/fh binds` | What FaithHeals sees, and what each binding does |
+| `/fh clicks`, `/fh heals` | Print what each click does / what the game reports about incoming heals |
 | `/fh reset` | Back to defaults |
 
 ## Build and release
@@ -44,6 +48,6 @@ repository secret `CF_API_KEY`.
 
 ## Status
 
-Early version, not yet tested in the game. Please report Lua errors as issues.
+Beta. Tested in the game, but not everything in combat yet. Please report problems as issues (`/fh debug` helps).
 
 Licensed under GPL-3.0.

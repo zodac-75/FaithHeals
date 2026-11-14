@@ -8,11 +8,15 @@ local _, JH = ...
 local CLASSES = { "WARRIOR", "PRIEST", "DRUID", "MAGE", "PALADIN", "HUNTER", "ROGUE",
                   "SHAMAN", "WARLOCK", "MONK", "DEATHKNIGHT", "DEMONHUNTER", "EVOKER" }
 local NAMES = { "Faith", "Bjorn", "Astrid", "Tova", "Sigge", "Ylva", "Runa", "Loke", "Embla", "Vidar",
-                "Saga", "Odd", "Freja", "Hakon", "Liv", "Torsten", "Idun", "Gorm", "Alva", "Sten",
+                "Saga", "Odd", "Freja", "Hakonsdottir", "Liv", "Torstensson", "Idun", "Gorm", "Alva", "Sten",
                 "Maja", "Ragnar", "Signe", "Ivar", "Elsa", "Knut", "Hilda", "Arvid", "Tyra", "Folke",
                 "Greta", "Halvar", "Inga", "Jorund", "Kaja", "Leif", "Moa", "Njal", "Disa", "Ulf" }
 local HOTS = { "Interface\\Icons\\Spell_Nature_Rejuvenation", "Interface\\Icons\\Spell_Nature_ResistNature",
                "Interface\\Icons\\INV_Misc_Herb_Felblossom", "Interface\\Icons\\Ability_Druid_Flourish" }
+local BUFFS = { "Interface\\Icons\\Spell_Holy_WordFortitude", "Interface\\Icons\\Spell_Nature_Regeneration",
+                "Interface\\Icons\\Spell_Holy_MagicalSentry", "Interface\\Icons\\Spell_Holy_SealOfWisdom" }
+local DEBUFFS = { "Interface\\Icons\\Spell_Shadow_ShadowWordPain", "Interface\\Icons\\Spell_Nature_Slow",
+                  "Interface\\Icons\\Spell_Shadow_CurseOfTounges" }
 local HEALTH = { 1, 0.85, 0.6, 1, 0.35, 1, 0.95, 0.15, 1, 0.7 }
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
@@ -33,6 +37,10 @@ local function MakeData(n)
       dispel = (i == 3 or i == 17),
       oor    = (i == 5 or i % 11 == 0),
       target = (i == 2),
+      inc    = (i % 3 == 0) and 0.2 or ((i % 4 == 2) and 0.1 or 0), -- incoming heals
+      marker = (i == 1 and 8) or (i == 4 and 1) or (i == 7 and 2) or nil, -- skull, star, circle
+      buffs  = (i % 2 == 0) and 3 or 1,                 -- buffs from other players
+      debuffs = (i % 6 == 4) and 2 or 0,                -- debuffs you can't dispel (plus the dispel one)
     }
   end
   local sort = JH.db.layout.sort
@@ -50,8 +58,20 @@ end
 local function Fill(b, d)
   local look = JH.db.look
   local c = RAID_CLASS_COLORS[d.class]
-  b.name:SetText(d.name)
-  if look.name == "class" and c then b.name:SetTextColor(c.r, c.g, c.b) else b.name:SetTextColor(1, 1, 1) end
+  b.name:SetText(JH.ShortName(d.name, look.nameLen))
+  b.name:SetTextColor(JH.NameRGB(look, c))
+  if look.pctColor == "health" then
+    local p = d.hp
+    if p > 0.5 then b.pct:SetTextColor((1 - p) * 2, 1, 0) else b.pct:SetTextColor(1, p * 2, 0) end
+  else
+    b.pct:SetTextColor(JH.PctRGB(look, c))
+  end
+  JH.ApplyBg(b, c)
+
+  local mark = d.marker and look.marker ~= false
+  if mark then SetRaidTargetIconTexture(b.marker, d.marker) end
+  b.marker:SetShown(mark and true or false)
+  b.markerShown = mark and true or false
 
   b.hp:SetMinMaxValues(0, 1)
   if d.state then
@@ -59,6 +79,13 @@ local function Fill(b, d)
   else
     b.hp:SetValue(d.hp); b.status:SetText("")
     if b.showPct then b.pct:SetFormattedText("%d%%", d.hp * 100) else b.pct:SetText("") end
+  end
+  if b.inc then
+    if look.inc ~= false and not d.state and d.inc > 0 then
+      b.inc:SetMinMaxValues(0, 1); b.inc:SetValue(d.inc); b.inc:Show()
+    else
+      b.inc:Hide()
+    end
   end
 
   local tex = b.barTex
@@ -72,23 +99,34 @@ local function Fill(b, d)
     tex:SetVertexColor(1, d.hp * 1.8, 0)
   end
 
-  local shown = 0
-  for i, ic in ipairs(b.icons) do
-    if look.hots ~= false and not d.state and i <= d.hots then
-      ic.tex:SetTexture(HOTS[i])
-      ic.cd:SetCooldown(GetTime() - 3 * i, 12 + i * 2)
-      ic:Show(); shown = i
-    else
-      ic:Hide()
+  -- icons, the same three kinds (and caps) as on the real bars
+  local function Cap(v, def) return math.max(0, math.min(4, tonumber(v) or def)) end
+  local function Put(icons, n, textures)
+    for i, ic in ipairs(icons) do
+      if i <= n then
+        ic.tex:SetTexture(textures[(i - 1) % #textures + 1])
+        ic.cd:SetCooldown(GetTime() - 3 * i, 12 + i * 2)
+        ic:Show()
+      else
+        ic:Hide()
+      end
     end
+    return n
   end
-  if b.slim then
-    b.name:ClearAllPoints()
-    b.name:SetPoint("LEFT", 3, 0)
-    b.name:SetPoint("RIGHT", -(3 + shown * ((b.iconSize or 10) + 1)), 0)
+  local alive = not d.state
+  local hotMax = look.hots ~= false and Cap(look.hotMax, 4) or 0
+  local nDeb = 0
+  if look.showDebuffs then
+    if look.debuffs == "dispel" then nDeb = d.dispel and 1 or 0
+    else nDeb = (d.dispel and 1 or 0) + d.debuffs end
   end
+  b.nHots    = Put(b.icons, alive and math.min(d.hots, hotMax) or 0, HOTS)
+  b.nBuffs   = Put(b.buffIcons, alive and math.min(d.buffs, (look.showBuffs and Cap(look.buffMax, 3) or 0)) or 0, BUFFS)
+  b.nDebuffs = Put(b.debuffIcons, alive and math.min(nDeb, Cap(look.debuffMax, 3)) or 0, DEBUFFS)
+  b.placedKey = nil
+  JH.PlaceIcons(b)
 
-  b.dispel:SetShown(d.dispel)
+  b.dispel:SetShown(d.dispel and look.dispel ~= false)
   b.sel:SetShown(d.target)
   b:SetAlpha(d.oor and (JH.db.rangeAlpha or 0.4) or 1)
 end
@@ -98,9 +136,11 @@ function JH.RefreshTest()
   local n = JH.testCount
   if not n or not container then return end
   local db, L = JH.db, JH.db.layout
-  local w, h = db.width, db.height
+  local id = JH.LayoutForCount(n)
+  local s = JH.Size(id)
+  local w, h = s.w, s.h
   local sp  = math.max(0, math.min(20, tonumber(L.spacing) or 2))
-  local per = math.max(1, math.min(40, tonumber(L.per) or 5))
+  local per = JH.PerColumn(id)
   local right = (L.grow == "right")
   local data = MakeData(n)
 
@@ -148,18 +188,17 @@ function JH.SetTest(n)
       container:EnableMouse(true) -- so clicks don't reach the hidden real bars underneath
     end
     JH.testCount = n
-    JH.header:SetAlpha(0)       -- real bars stay in place, just invisible
+    JH.ChooseLayout()           -- resizing now changes the test bars' group size
+    for _, hdr in ipairs(JH.headers) do hdr:SetAlpha(0) end -- real bars stay, just invisible
     container:Show()
     JH.RefreshTest()
-    JH.grip:ClearAllPoints()
-    JH.grip:SetPoint("TOPLEFT", container, "BOTTOMRIGHT", -4, 4)
+    JH.AnchorGrip(container)
   else
     if not JH.testCount then return end
     JH.testCount = nil
     if container then container:Hide() end
-    JH.header:SetAlpha(1)
-    JH.grip:ClearAllPoints()
-    JH.grip:SetPoint("TOPLEFT", JH.header, "BOTTOMRIGHT", -4, 4)
+    for _, hdr in ipairs(JH.headers) do hdr:SetAlpha(1) end
+    JH.ApplyAll(true)           -- back to the size for the group you are in
   end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end

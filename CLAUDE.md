@@ -36,6 +36,13 @@ themes, layout options and test bars. README.md has the overview.
   a moment). If logged out, tell him; don't log in.
 - Screenshots on CurseForge are real ones from the game that he takes himself. Never use
   AI-generated images as screenshots.
+- **Jennie** (plays/tests it) needs **health %** and **incoming heals** on the bars: never break them.
+  Testers can get builds from `Z:\FaithHeals\Jennie\` (FaithHeals.zip + Installera.txt in Swedish).
+- **The settings window must stay simple and easy to understand**: one toggle per thing, short
+  labels, at most 1-2 lines of help text per section.
+- **Writing files to his PC/NAS** (`device_commit_files`): sending the same staged path again can
+  write an OLD copy (new mtime, old size). Copy the files to a new folder each time
+  (e.g. `outputs/push-<time>/`) and check the sizes with `device_list_dir` afterwards.
 
 ## Layout
 
@@ -44,7 +51,8 @@ FaithHeals/            the addon (copy this folder into Interface\AddOns)
   FaithHeals.toc         "## Version: @project-version@" is filled in by the build
   Core.lua               saved settings, click-casting and keybinds, hover bindings, slash commands
   Frames.lua             unit bars, themes, range, layout, move/resize
-  Config.lua             the /fh window (Spells and Look & layout tabs)
+  Config.lua             the /fh window (Spells, Look & layout and Bars & text tabs), minimap button
+  Spells.lua             reads the spellbook (spell list and ranks for the Spells tab)
   Test.lua               test bars (fake group members)
   Template.xml           the secure unit button template
   Media/                 Icon.tga, Logo.tga
@@ -75,6 +83,21 @@ BigWigs packager (branch v2, `-g 1.60.1`), uploads it to CurseForge (project 180
   toggle Blizzard panels from addon code.
 - The thumb buttons and the wheel are bound with `SetBindingClick` from a secure header while the
   mouse is over a bar, so they only act on bars and keep their normal job elsewhere.
-- Not tested in the game as of 0.1.0-alpha. The parts that depend on new Midnight APIs
+- **Clicks**: secure buttons (bars, fallback keys) must use `RegisterForClicks("AnyUp", "AnyDown")`.
+  With only one direction, mouse clicks were ignored in Forever. Insecure post-click code
+  (`BarPostClick`, e.g. Trade) only acts when `down` is false.
+- **Target / focus / assist** run as macros: a secure pre-click (`ON_CLICK` in Core.lua, wrapped on
+  OnClick) writes `"/target " .. unit` into the right `macrotext` attribute before every click.
+  The plain secure `type = "target"` did nothing in Forever. Don't change it back.
+- **HoT icons** = your own auras filtered by `JH.IsHot` (known HoT names, or 60 s or less, cached per
+  auraInstanceID because names/durations can be secret in combat). Everything else is a buff.
+- **Settings migrations**: `db.version` in `InitDB` (Core.lua). Bump it and migrate when a setting
+  changes shape. Every `db.look` key must be in both `JH.defaults.look` and `DEFAULT_LOOK` (Frames.lua).
+- **Debug commands**: `/fh debug`, `/fh binds`, `/fh clicks` (what each click does, which unit, the
+  target afterwards), `/fh heals` (incoming-heal API, events and values).
+- **Open (0.3.0-beta)**: incoming heals may not show in combat. Ask for `/fh heals` output; if
+  `UnitGetIncomingHeals`/`UNIT_HEAL_PREDICTION` don't work in Forever, estimate own heals or use
+  LibHealComm-style addon messages.
+- Older note: not tested in the game as of 0.1.0-alpha. The parts that depend on new Midnight APIs
   (health-colour curve, `UnitHealthPercent`, `SetAlphaFromBoolean`, aura duration objects) are
   guarded and fall back quietly; if one doesn't work in the game, fix that first.

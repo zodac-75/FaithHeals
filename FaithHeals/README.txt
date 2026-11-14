@@ -9,37 +9,67 @@ INSTALL
 COMMANDS
   /fh            open the Spells window
   /fh test 20    show 20 test bars (any number 1-40), /fh test again to hide
+  /fh minimap    hide or show the minimap button (left-click: settings, right-click: lock)
+  /fh debug      show what FaithHeals sees, for reporting problems
+  /fh binds      list your bindings and what your own bar will do for each
+  /fh clicks     print what every click on a bar does (to find binding problems)
+  /fh heals      show what the game reports about incoming heals
   /fh unlock     move / resize the frames, /fh lock when done
   /fh scale 1.2  scale everything
   /fh reset      back to defaults
 
-SPELLS (works like HealBot's Spells tab)
-  Pick a button in the list on the left, then type a spell for each combination:
-  Click, Shift, Ctrl, Alt, Ctrl+Shift, Alt+Shift, Alt+Ctrl.
+SPELLS (first tab in /fh)
+  1. Press New (or pick a binding in "Your bindings" to change it).
+  2. In the list on the left, click a spell or an action:
+       Target, Set focus, Assist, Unit menu, Trade.
+     The list shows the spells in your spellbook. "Friendly only" hides attacks.
+     A spell that isn't listed can be typed in the box under the list.
+  3. Rank: "Max" always casts your highest rank (also after you train a new one).
+     Click the Rank button to pick a lower rank instead.
+  4. Click "Bind a button", then press the mouse button or key you want.
+     Hold Alt, Ctrl or Shift while you press it to bind that combination,
+     e.g. hold Alt and right-click = Alt + Right button.
+  5. Save & Apply.
 
-  Buttons: Left, Right, Middle, Button 4, Button 5, Wheel up, Wheel down,
-           and Thumb 1-12 (the twelve side buttons of an MMO mouse).
+  Mouse buttons (left, right, middle, 4, 5) cast when you click a bar.
+  Keys, the 12 thumb buttons of an MMO mouse and the wheel cast on the bar under
+  the mouse, and do their normal job everywhere else (action bars, zoom).
+  One button = one action: binding a button that is already used replaces the old one.
+  Tick "Keys cast on my target when not over a bar" if you want keys to heal your
+  target when the mouse is somewhere else.
 
-  Special words instead of a spell:  target   focus   menu
-
-  THUMB BUTTONS: the addon needs to know which key each side button sends.
-  Default is 1 2 3 4 5 6 7 8 9 0 - =  (what most 12-button mice send).
-  If a button sends something else: select "Thumb N", click the box after
-  "This button sends:", and press that side button.
-
-  The thumb buttons and the wheel only cast while the mouse is over one of the
-  frames. Everywhere else they do what they normally do (action bars, zoom).
-  Tick "Thumb buttons cast on my target when not over a frame" if you want them
-  to heal your current target when the mouse is somewhere else.
-
-  Hover a frame to see what every button casts. Hold Shift/Ctrl/Alt to see that set.
+  Hover a bar to see what every button casts. Hold Shift/Ctrl/Alt to see that set.
+  If Alt+click casts on yourself, set Self Cast to None in the game options.
 
 LOOK & LAYOUT (second tab in /fh)
   Look:   theme, bar colour (by health / class / dark), name colour, bar texture,
-          health %, HoT icons, bar width / height / scale, how much out-of-range bars fade.
-  Layout: columns or rows, sort by raid group / role / name, bars per column or row,
-          space between bars, show when solo, show yourself in the party.
+          health % (on every bar size), incoming heals,
+          bar width / height / scale, how much out-of-range bars fade.
+  Size:   Solo, Party, Raid 10, 20, 25 and 40 each have their own bar width, height and
+          number of columns. Pick the group size, set the numbers (or turn on Test bars and
+          drag the corner handle). The bars switch size by themselves with your group.
+  Layout: columns or rows, sort by raid group / role / name, space between bars,
+          show when solo, show yourself in the party.
   Nothing changes until you press Save & Apply.
+
+BARS & TEXT (third tab in /fh)
+  Text:   font, text size (Auto follows the bar height), outline, name length
+          (cut long names), name position (centre / left), name colour
+          (white / class / yellow / light grey / black), health % colour
+          (white / same as name / by health / yellow), shadow behind the text.
+  Bars:   background colour (dark / red / dark class colour), health fills
+          left to right (default, like Blizzard's bars) or bottom to top,
+          raid markers on the bars.
+  Icons:  one toggle each, shown on every bar in the group (your own bar too):
+            My HoTs        on/off, max 1-4, size 50-200% (only HoTs and short
+                           effects you cast)
+            Buffs          on/off, max 1-4, size 50-200% (all other buffs, also
+                           your own long ones like Arcane Intellect)
+            Debuffs        on/off, max 1-4, size 50-200%, all of them or only
+                           ones you can dispel
+            Purple border  on/off, when you can dispel a debuff
+          Tall bars: HoTs bottom left, buffs bottom right, debuffs top right.
+          Slim bars: HoTs and buffs on the right, debuffs on the left.
 
 TEST BARS
   Look & layout tab > "Test bars" (or /fh test 20) shows fake group members so the
@@ -63,7 +93,8 @@ MOVE AND RESIZE
   Text and HoT icons grow and shrink with the bars.
 
 ON THE BARS
-  Your own HoTs with timers, a purple border for a debuff you can dispel,
+  Health % (tick "Show health %"), incoming heals as a light green bar after the
+  health, your own HoTs with timers, a purple border for a debuff you can dispel,
   a white border on your target, faded when out of range.
 
 PERFORMANCE

@@ -14,8 +14,9 @@ local TEX = {
 --         "dark" = dark bar with red where health is missing
 --   name: "white" or "class"
 --   tex:  "blizzard", "raid", "flat"
---   pct:  show health % (only on bars 30+ high)
+--   pct:  show health % (under the name on tall bars, on the right on slim bars)
 --   hots: show your own HoT icons
+--   inc:  show incoming heals as a lighter bar after the health
 -- A theme is a preset of these plus a suggested bar size.
 ---------------------------------------------------------------------------
 JH.THEMES = {
@@ -26,7 +27,11 @@ JH.THEMES = {
 }
 JH.THEME_ORDER = { "healbot", "class", "slim", "dark" }
 
-local DEFAULT_LOOK = { bar = "health", name = "white", tex = "blizzard", pct = false, hots = true }
+local DEFAULT_LOOK = { bar = "health", name = "white", tex = "blizzard", pct = false, hots = true, inc = true,
+                       font = "game", fontSize = 0, outline = "OUTLINE", nameLen = 0, nameAlign = "center",
+                       bg = "auto", fill = "h", hotSize = 1, buffSize = 1, debuffSize = 1, marker = true, pctColor = "white", shadow = true,
+                       hotMax = 4, showBuffs = false, buffMax = 3,
+                       showDebuffs = false, debuffs = "all", debuffMax = 3, dispel = true }
 local function Look()
   return (JH.db and JH.db.look) or DEFAULT_LOOK
 end
@@ -79,18 +84,70 @@ end
 -- Updates. Each one is small and only runs when the game says that thing
 -- changed for that unit.
 ---------------------------------------------------------------------------
+-- Name cut to max letters (0 = whole name). Counts letters, not bytes, so å ä ö work.
+local function ShortName(n, max)
+  if IsSecret(n) or type(n) ~= "string" or not max or max <= 0 then return n end
+  local out, count = {}, 0
+  for ch in n:gmatch("[^\128-\191][\128-\191]*") do
+    count = count + 1
+    if count > max then return table.concat(out) end
+    out[count] = ch
+  end
+  return n
+end
+JH.ShortName = ShortName
+
+-- Colour behind the bar (the missing health)
+--   auto: dark, or red with the Dark bar colour   dark / red / class (dimmed class colour)
+local function ApplyBg(b, c)
+  local look = Look()
+  local mode = look.bg or "auto"
+  if mode == "auto" then mode = (look.bar == "dark") and "red" or "dark" end
+  if mode == "red" then
+    b.hpbg:SetColorTexture(0.45, 0.05, 0.05, 0.9)
+  elseif mode == "class" and c then
+    b.hpbg:SetColorTexture(c.r * 0.3, c.g * 0.3, c.b * 0.3, 0.9)
+  else
+    b.hpbg:SetColorTexture(0.05, 0.05, 0.05, 0.85)
+  end
+end
+JH.ApplyBg = ApplyBg
+
+-- Text colours. name: white / class / yellow / grey / black
+-- pctColor: white / name (same as the name) / health (green > red) / yellow
+JH.NAME_COLORS = {
+  { "white", "White" }, { "class", "Class colour" }, { "yellow", "Yellow" },
+  { "grey", "Light grey" }, { "black", "Black" },
+}
+JH.PCT_COLORS = {
+  { "white", "White" }, { "name", "Same as the name" }, { "health", "By health (green > red)" },
+  { "yellow", "Yellow" },
+}
+local TEXT_RGB = { white = { 1, 1, 1 }, yellow = { 1, 0.82, 0 }, grey = { 0.75, 0.75, 0.75 }, black = { 0, 0, 0 } }
+
+function JH.NameRGB(look, c)
+  if look.name == "class" and c then return c.r, c.g, c.b end
+  local t = TEXT_RGB[look.name] or TEXT_RGB.white
+  return t[1], t[2], t[3]
+end
+
+-- health % colour that doesn't depend on the health (the "health" one is set in UpdateHealth)
+function JH.PctRGB(look, c)
+  if look.pctColor == "name" then return JH.NameRGB(look, c) end
+  local t = TEXT_RGB[look.pctColor] or TEXT_RGB.white
+  return t[1], t[2], t[3]
+end
+
 local function UpdateName(b)
   local u = b.unit
   if not u or not UnitExists(u) then return end
   local look = Look()
-  b.name:SetText(UnitName(u) or "")
+  b.name:SetText(ShortName(UnitName(u) or "", look.nameLen))
   local _, class = UnitClass(u)
   local c = class and RAID_CLASS_COLORS[class]
-  if look.name == "class" and c then
-    b.name:SetTextColor(c.r, c.g, c.b)
-  else
-    b.name:SetTextColor(1, 1, 1)
-  end
+  b.name:SetTextColor(JH.NameRGB(look, c))
+  if look.pctColor ~= "health" then b.pct:SetTextColor(JH.PctRGB(look, c)) end
+  ApplyBg(b, c)
   if look.bar == "class" then
     if c then SetBarColor(b, c.r, c.g, c.b) else SetBarColor(b, 0.2, 0.8, 0.2) end
   elseif look.bar == "dark" then
@@ -113,6 +170,19 @@ local function UpdateHealthColor(b, u)
   end
 end
 
+-- Incoming heals: a second bar that starts where the health fill ends. It uses the
+-- same 0..max health scale, so no maths is needed (works with secret values too).
+local function UpdateIncoming(b, u)
+  local inc = b.inc
+  if not inc then return end
+  if Look().inc == false or not UnitGetIncomingHeals then return inc:Hide() end
+  local ok, v = pcall(UnitGetIncomingHeals, u)
+  if not ok or (not IsSecret(v) and type(v) ~= "number") then return inc:Hide() end
+  inc:SetMinMaxValues(0, UnitHealthMax(u))
+  inc:SetValue(v)
+  inc:Show()
+end
+
 local function UpdateHealth(b)
   local u = b.unit
   if not u or not UnitExists(u) then return end
@@ -120,10 +190,12 @@ local function UpdateHealth(b)
   if not UnitIsConnected(u) then
     b.hp:SetMinMaxValues(0, 1); b.hp:SetValue(0)
     b.status:SetText("Offline"); b.pct:SetText("")
+    if b.inc then b.inc:Hide() end
     return
   elseif UnitIsDeadOrGhost(u) then
     b.hp:SetMinMaxValues(0, 1); b.hp:SetValue(0)
     b.status:SetText("Dead"); b.pct:SetText("")
+    if b.inc then b.inc:Hide() end
     return
   end
   b.status:SetText("")
@@ -136,63 +208,236 @@ local function UpdateHealth(b)
   end
 
   if Look().bar == "health" then UpdateHealthColor(b, u) end
+  UpdateIncoming(b, u)
 
   if b.showPct then
     local ok = false
+    -- Midnight: the game formats the (possibly secret) percent for us
     if UnitHealthPercent and SCALE100 then
       local ok1, v = pcall(UnitHealthPercent, u, true, SCALE100)
       if ok1 then ok = pcall(b.pct.SetFormattedText, b.pct, "%.0f%%", v) end
     end
+    -- older clients: work it out ourselves when the numbers aren't secret
+    if not ok then
+      local c, m = UnitHealth(u), UnitHealthMax(u)
+      if not IsSecret(c) and not IsSecret(m) and m and m > 0 then
+        b.pct:SetFormattedText("%d%%", math.floor(c / m * 100 + 0.5))
+        ok = true
+      end
+    end
     if not ok then b.pct:SetText("") end
+    if ok and Look().pctColor == "health" then
+      local cv = HealthCurve()
+      local done = false
+      if cv then
+        local okC, r, g, bl = pcall(CurveRGB, u, cv)
+        if okC then done = pcall(b.pct.SetTextColor, b.pct, r, g, bl) end
+      end
+      if not done then
+        local c, m = UnitHealth(u), UnitHealthMax(u)
+        if not IsSecret(c) and not IsSecret(m) and m and m > 0 then
+          local p = c / m
+          if p > 0.5 then b.pct:SetTextColor((1 - p) * 2, 1, 0) else b.pct:SetTextColor(1, p * 2, 0) end
+        else
+          b.pct:SetTextColor(1, 1, 1)
+        end
+      end
+    end
   end
 end
 
--- In slim bars the HoT icons sit on the right, so keep the name clear of them
-local function FitName(b, shown)
-  if not b.slim or b.fitShown == shown then return end
-  b.fitShown = shown
+-- Icons on the bars. Three kinds, each can be turned off (and capped) in the options:
+--   b.icons       your own HoTs     tall: bottom left   slim: from the right edge
+--   b.buffIcons   buffs (not HoTs)  tall: bottom right  slim: right, after the HoTs
+--   b.debuffIcons debuffs           tall: top right     slim: left, after the raid marker
+-- b.nHots / b.nBuffs / b.nDebuffs say how many of each are showing.
+
+-- Where the text and the buff/debuff icons go, given what is showing.
+local function PlaceText(b)
+  local hstep = (b.iconSize or 10) + 1          -- HoT icons
+  local bstep = (b.buffSize or b.iconSize or 10) + 1
+  local dstep = (b.debuffSize or b.iconSize or 10) + 1
+  local ms = b.markerShown and ((b.markerSize or 10) + 1) or 0
+  local nh, nb, nd = b.nHots or 0, b.nBuffs or 0, b.nDebuffs or 0
   b.name:ClearAllPoints()
-  b.name:SetPoint("LEFT", 3, 0)
-  b.name:SetPoint("RIGHT", -(3 + shown * ((b.iconSize or 10) + 1)), 0)
+  if b.slim then
+    for i, ic in ipairs(b.buffIcons) do
+      ic:ClearAllPoints(); ic:SetPoint("RIGHT", -2 - nh * hstep - (i - 1) * bstep, 0)
+    end
+    for i, ic in ipairs(b.debuffIcons) do
+      ic:ClearAllPoints(); ic:SetPoint("LEFT", 2 + ms + (i - 1) * dstep, 0)
+    end
+    local right = nh * hstep + nb * bstep
+    b.pct:ClearAllPoints();    b.pct:SetPoint("RIGHT", -(3 + right), 0)
+    b.status:ClearAllPoints(); b.status:SetPoint("RIGHT", -(3 + right), 0)
+    local text = b.showPct and (b.pctWidth or 24) or 0
+    b.name:SetPoint("LEFT", 3 + ms + nd * dstep, 0)
+    b.name:SetPoint("RIGHT", -(3 + right + text), 0)
+  else
+    for i, ic in ipairs(b.buffIcons) do
+      ic:ClearAllPoints(); ic:SetPoint("BOTTOMRIGHT", -2 - (i - 1) * bstep, 2)
+    end
+    for i, ic in ipairs(b.debuffIcons) do
+      ic:ClearAllPoints(); ic:SetPoint("TOPRIGHT", -2 - (i - 1) * dstep, -2)
+    end
+    local y = -math.max(2, (b:GetHeight() or 30) * 0.08)
+    b.name:SetPoint("TOPLEFT", 3 + ms, y)
+    b.name:SetPoint("TOPRIGHT", -(3 + nd * dstep), y)
+  end
+end
+JH.PlaceText = PlaceText
+
+-- Re-place only when what is showing changed (aura updates come often)
+local function PlaceIcons(b)
+  local key = (b.nHots or 0) * 100 + (b.nBuffs or 0) * 10 + (b.nDebuffs or 0) + (b.markerShown and 1000 or 0)
+  if b.placedKey == key then return end
+  b.placedKey = key
+  PlaceText(b)
+end
+JH.PlaceIcons = PlaceIcons
+
+-- Raid target marker (skull, star ...) on the left of the bar
+local function UpdateMarker(b)
+  local m = b.marker
+  if not m then return end
+  local idx = Look().marker ~= false and b.unit and GetRaidTargetIndex and GetRaidTargetIndex(b.unit)
+  local show = idx and not IsSecret(idx) and SetRaidTargetIconTexture and true or false
+  if show then SetRaidTargetIconTexture(m, idx) end
+  m:SetShown(show)
+  b.markerShown = show
+  PlaceIcons(b)
+end
+
+local function SetAuraIcon(ic, u, aura)
+  pcall(ic.tex.SetTexture, ic.tex, aura.icon)
+  local cdOk = false
+  if C_UnitAuras.GetAuraDuration and ic.cd.SetCooldownFromDurationObject then
+    local okD, dur = pcall(C_UnitAuras.GetAuraDuration, u, aura.auraInstanceID)
+    if okD and dur then cdOk = pcall(ic.cd.SetCooldownFromDurationObject, ic.cd, dur) end
+  end
+  if not cdOk then
+    local exp, d = aura.expirationTime, aura.duration
+    if exp and d and not IsSecret(exp) and not IsSecret(d) and d > 0 then
+      ic.cd:SetCooldown(exp - d, d)
+    else
+      ic.cd:Clear()
+    end
+  end
+  ic:Show()
+end
+
+-- Put up to max auras from list on the icons (skip = auraInstanceIDs to leave out)
+local function FillIcons(list, icons, max, u, skip)
+  local n = 0
+  if type(list) ~= "table" then return 0 end
+  max = math.min(max or 0, #icons)
+  for i = 1, #list do
+    if n >= max then break end
+    local a = list[i]
+    local id = a and a.auraInstanceID
+    if a and not (skip and id and not IsSecret(id) and skip[id]) then
+      n = n + 1
+      SetAuraIcon(icons[n], u, a)
+    end
+  end
+  return n
+end
+
+-- Is this one of your auras a HoT (or a short helpful effect like Ironbark)?
+-- Known HoT names first; else anything that lasts 60 seconds or less. In combat the
+-- name and duration can be secret: then the answer from before is reused (by aura
+-- instance), and a brand new unreadable aura counts as a HoT (that's what you cast in combat).
+local HOT_NAMES = {}
+for _, n in ipairs({
+  "Rejuvenation", "Rejuvenation (Germination)", "Germination", "Regrowth", "Lifebloom", "Wild Growth",
+  "Cenarion Ward", "Spring Blossoms", "Tranquility", "Adaptive Swarm", "Grove Tending",
+  "Renew", "Prayer of Mending", "Power Word: Shield", "Echo of Light", "Atonement", "Holy Word: Salvation",
+  "Riptide", "Earth Shield", "Healing Rain", "Unleash Life",
+  "Renewing Mist", "Enveloping Mist", "Soothing Mist", "Essence Font", "Zen Pulse",
+  "Reversion", "Echo", "Dream Breath", "Lifebind", "Verdant Embrace", "Time Dilation",
+  "Beacon of Light", "Beacon of Faith", "Beacon of Virtue", "Glimmer of Light", "Blessing of Sacrifice",
+  "Ironbark", "Pain Suppression", "Guardian Spirit", "Life Cocoon", "Blessing of Protection",
+}) do HOT_NAMES[n] = true end
+local hotCache = {}
+
+function JH.IsHot(a)
+  local id = a.auraInstanceID
+  local idOk = id and not IsSecret(id)
+  if idOk and hotCache[id] ~= nil then return hotCache[id] end
+  local res
+  local n, d = a.name, a.duration
+  if n and not IsSecret(n) and HOT_NAMES[n] then
+    res = true
+  elseif d ~= nil and not IsSecret(d) then
+    res = d > 0 and d <= 60
+  elseif n and not IsSecret(n) then
+    res = false            -- readable name, not a known HoT
+  else
+    return true            -- nothing readable: show it (don't cache)
+  end
+  if idOk then hotCache[id] = res end
+  return res
+end
+
+local function Count(v, default)
+  v = tonumber(v)
+  if not v then return default end
+  return math.max(0, math.min(MAX_HOTS, math.floor(v)))
 end
 
 local function UpdateAuras(b)
   local u = b.unit
-  local shown = 0
+  local look = Look()
+  local nh, nb, nd = 0, 0, 0
   if u and UnitExists(u) and C_UnitAuras and C_UnitAuras.GetUnitAuras then
-    if Look().hots ~= false then
-      -- Your own HoTs on this unit
-      local ok, list = pcall(C_UnitAuras.GetUnitAuras, u, "HELPFUL|PLAYER", MAX_HOTS)
+    local Get = C_UnitAuras.GetUnitAuras
+    local hotMax = look.hots ~= false and Count(look.hotMax, MAX_HOTS) or 0
+    local buffMax = look.showBuffs and Count(look.buffMax, 3) or 0
+    local debuffMax = look.showDebuffs and Count(look.debuffMax, 3) or 0
+
+    -- your own auras: HoTs go on the HoT icons, the rest (Arcane Intellect, armour ...)
+    -- count as buffs and only show when Buffs is on
+    local hotIDs = {}
+    if hotMax > 0 or buffMax > 0 then
+      local ok, list = pcall(Get, u, "HELPFUL|PLAYER", 40)
       if ok and type(list) == "table" then
-        for i = 1, math.min(#list, MAX_HOTS) do
-          local aura, ic = list[i], b.icons[i]
-          pcall(ic.tex.SetTexture, ic.tex, aura.icon)
-          local cdOk = false
-          if C_UnitAuras.GetAuraDuration and ic.cd.SetCooldownFromDurationObject then
-            local okD, dur = pcall(C_UnitAuras.GetAuraDuration, u, aura.auraInstanceID)
-            if okD and dur then cdOk = pcall(ic.cd.SetCooldownFromDurationObject, ic.cd, dur) end
+        local hots = {}
+        for _, a in ipairs(list) do
+          if JH.IsHot(a) then
+            hots[#hots + 1] = a
+            local id = a.auraInstanceID
+            if id and not IsSecret(id) then hotIDs[id] = true end
           end
-          if not cdOk then
-            local exp, d = aura.expirationTime, aura.duration
-            if exp and d and not IsSecret(exp) and not IsSecret(d) and d > 0 then
-              ic.cd:SetCooldown(exp - d, d)
-            else
-              ic.cd:Clear()
-            end
-          end
-          ic:Show()
-          shown = i
         end
+        if hotMax > 0 then nh = FillIcons(hots, b.icons, hotMax, u) end
       end
     end
-    -- Debuff you can dispel -> coloured border
-    local okD, dl = pcall(C_UnitAuras.GetUnitAuras, u, "HARMFUL|RAID_PLAYER_DISPELLABLE", 1)
-    b.dispel:SetShown(okD and type(dl) == "table" and #dl > 0)
+    -- buffs: everything helpful that isn't one of your HoTs (yours and other players')
+    if buffMax > 0 then
+      local ok, list = pcall(Get, u, "HELPFUL", 40)
+      if ok then nb = FillIcons(list, b.buffIcons, buffMax, u, hotIDs) end
+    end
+    -- debuffs: all of them, or only the ones you can dispel
+    if debuffMax > 0 then
+      local filter = look.debuffs == "all" and "HARMFUL" or "HARMFUL|RAID_PLAYER_DISPELLABLE"
+      local ok, list = pcall(Get, u, filter, debuffMax)
+      if ok then nd = FillIcons(list, b.debuffIcons, debuffMax, u) end
+    end
+    -- debuff you can dispel -> coloured border
+    if look.dispel ~= false then
+      local okD, dl = pcall(Get, u, "HARMFUL|RAID_PLAYER_DISPELLABLE", 1)
+      b.dispel:SetShown(okD and type(dl) == "table" and #dl > 0)
+    else
+      b.dispel:Hide()
+    end
   else
     b.dispel:Hide()
   end
-  for i = shown + 1, MAX_HOTS do b.icons[i]:Hide() end
-  FitName(b, shown)
+  for i = nh + 1, MAX_HOTS do b.icons[i]:Hide() end
+  for i = nb + 1, MAX_HOTS do b.buffIcons[i]:Hide() end
+  for i = nd + 1, MAX_HOTS do b.debuffIcons[i]:Hide() end
+  b.nHots, b.nBuffs, b.nDebuffs = nh, nb, nd
+  PlaceIcons(b)
 end
 
 local function UpdateTarget(b)
@@ -229,15 +474,16 @@ end
 
 function JH.UpdateButton(b)
   if not b.unit or not UnitExists(b.unit) then return end
-  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b); UpdateRange(b)
+  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b); UpdateRange(b); UpdateMarker(b)
 end
+JH.UpdateMarker = UpdateMarker
 
 ---------------------------------------------------------------------------
 -- Per-frame events: every bar only listens to its own unit, so nothing runs
 -- for nameplates, enemies or people outside the group.
 ---------------------------------------------------------------------------
 local UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA", "UNIT_CONNECTION",
-                      "UNIT_NAME_UPDATE", "UNIT_IN_RANGE_UPDATE" }
+                      "UNIT_NAME_UPDATE", "UNIT_IN_RANGE_UPDATE", "UNIT_HEAL_PREDICTION" }
 local auraDirty = {}
 
 local function Button_OnEvent(b, event, _, arg2)
@@ -270,58 +516,127 @@ end
 ---------------------------------------------------------------------------
 local FONT = (GameFontHighlightSmall and GameFontHighlightSmall:GetFont()) or "Fonts\\FRIZQT__.TTF"
 
+-- Fonts that come with the game. "game" = the normal UI font (right for every language).
+JH.FONTS = {
+  { "game",     "Game font" },
+  { "friz",     "Friz Quadrata", "Fonts\\FRIZQT__.TTF" },
+  { "arial",    "Arial Narrow",  "Fonts\\ARIALN.TTF" },
+  { "skurri",   "Skurri",        "Fonts\\skurri.ttf" },
+  { "morpheus", "Morpheus",      "Fonts\\MORPHEUS.TTF" },
+}
+local FONT_PATH = {}
+for _, f in ipairs(JH.FONTS) do FONT_PATH[f[1]] = f[3] end
+
+local function FontFlags(look)
+  local o = look.outline or "OUTLINE"
+  if o == "NONE" then return "" end
+  return o
+end
+
 function JH.LayoutButton(b)
   local w, h = b:GetSize()
   if not w or not h or h <= 0 or w <= 0 then return end
   local look = Look()
   local tall = h >= 30
+  local vert = look.fill == "v"
   b.slim = not tall
-  b.showPct = look.pct and tall
-  b.fitShown = nil
+  b.showPct = look.pct and true or false
+  b.placedKey = nil
+  if b.inc then
+    if vert then b.inc:SetHeight(math.max(1, h - 2)) else b.inc:SetWidth(math.max(1, w - 2)) end
+  end
 
+  -- text size: automatic from the bar height, or the size picked in the options
   local fs = math.max(7, math.min(18, math.floor((tall and h * 0.27 or h * 0.5) + 0.5)))
-  b.name:SetFont(FONT, fs, "OUTLINE")
-  b.pct:SetFont(FONT, math.max(7, fs - 1), "OUTLINE")
-  b.status:SetFont(FONT, fs, "OUTLINE")
-  b.name:SetJustifyH("CENTER")
+  if (tonumber(look.fontSize) or 0) > 0 then fs = math.max(6, math.min(30, look.fontSize)) end
+  local font, flags = FONT_PATH[look.font] or FONT, FontFlags(look)
+  if not b.name:SetFont(font, fs, flags) then b.name:SetFont(FONT, fs, flags); font = FONT end
+  b.pct:SetFont(font, math.max(6, fs - 1), flags)
+  b.status:SetFont(font, fs, flags)
+  b.name:SetJustifyH(look.nameAlign == "left" and "LEFT" or "CENTER")
+  -- a dark shadow behind the text makes it readable on any bar colour
+  for _, f in ipairs({ b.name, b.pct, b.status }) do
+    if look.shadow ~= false then
+      f:SetShadowColor(0, 0, 0, 1); f:SetShadowOffset(1, -1)
+    else
+      f:SetShadowOffset(0, 0)
+    end
+  end
+  b.pctWidth = math.floor(math.max(6, fs - 1) * 2.4 + 2) -- room for "100%"
 
-  local size
-  b.name:ClearAllPoints(); b.pct:ClearAllPoints(); b.status:ClearAllPoints()
+  b.markerSize = math.max(8, math.min(fs + 2, h - 4))
+  if b.marker then
+    b.marker:SetSize(b.markerSize, b.markerSize); b.marker:ClearAllPoints()
+    if tall then b.marker:SetPoint("TOPLEFT", 2, -2) else b.marker:SetPoint("LEFT", 2, 0) end
+  end
+
+  -- icon sizes: a base size from the bar, times the size picked for each kind
+  local function Mult(v) return math.max(0.5, math.min(2, tonumber(v) or 1)) end
+  local base = tall and math.min(h * 0.32, h - 4) or math.min(h - 6, w * 0.13)
+  local maxSize = tall and (h - 4) or (h - 2)
+  local function Size(mult) return math.max(6, math.floor(math.min(base * mult, maxSize))) end
+  local hs, bs, ds = Size(Mult(look.hotSize)), Size(Mult(look.buffSize)), Size(Mult(look.debuffSize))
+  if tall then
+    -- HoTs and buffs share the bottom row: shrink both if they wouldn't fit side by side
+    local nh = look.hots ~= false and (tonumber(look.hotMax) or MAX_HOTS) or 0
+    local nb = look.showBuffs and (tonumber(look.buffMax) or 3) or 0
+    local need = nh * (hs + 1) + nb * (bs + 1)
+    if need > w - 6 and need > 0 then
+      local f = (w - 6) / need
+      hs = math.max(6, math.floor(hs * f)); bs = math.max(6, math.floor(bs * f))
+    end
+  end
+
+  b.pct:ClearAllPoints(); b.status:ClearAllPoints()
   if tall then
     -- name on top, % under it, HoT icons along the bottom
-    b.name:SetPoint("TOPLEFT", 3, -math.max(2, h * 0.08))
-    b.name:SetPoint("TOPRIGHT", -3, -math.max(2, h * 0.08))
     b.pct:SetPoint("TOP", b.name, "BOTTOM", 0, -1)
     b.status:SetPoint("TOP", b.name, "BOTTOM", 0, -1)
-    size = math.max(8, math.floor(math.min(h * 0.32, (w - 6) / MAX_HOTS - 1)))
     for i, ic in ipairs(b.icons) do
-      ic:SetSize(size, size); ic:ClearAllPoints()
-      ic:SetPoint("BOTTOMLEFT", 2 + (i - 1) * (size + 1), 2)
+      ic:SetSize(hs, hs); ic:ClearAllPoints()
+      ic:SetPoint("BOTTOMLEFT", 2 + (i - 1) * (hs + 1), 2)
     end
   else
     -- slim bar: name in the middle, HoT icons stacked from the right edge
-    b.name:SetPoint("LEFT", 3, 0); b.name:SetPoint("RIGHT", -3, 0)
     b.pct:SetPoint("RIGHT", -3, 0)
     b.status:SetPoint("RIGHT", -3, 0)
-    size = math.max(6, math.floor(math.min(h - 6, w * 0.13)))
     for i, ic in ipairs(b.icons) do
-      ic:SetSize(size, size); ic:ClearAllPoints()
-      ic:SetPoint("RIGHT", -2 - (i - 1) * (size + 1), 0)
+      ic:SetSize(hs, hs); ic:ClearAllPoints()
+      ic:SetPoint("RIGHT", -2 - (i - 1) * (hs + 1), 0)
     end
   end
-  b.iconSize = size
+  b.iconSize, b.buffSize, b.debuffSize = hs, bs, ds
+  for _, ic in ipairs(b.buffIcons) do ic:SetSize(bs, bs) end
+  for _, ic in ipairs(b.debuffIcons) do ic:SetSize(ds, ds) end
+  PlaceText(b)
   if not b.showPct then b.pct:SetText("") end
 end
 
 function JH.StyleButton(b)
   local look = Look()
+  local vert = look.fill == "v"
+  local orient = vert and "VERTICAL" or "HORIZONTAL"
   b.hp:SetStatusBarTexture(TEX[look.tex] or TEX.blizzard)
+  b.hp:SetOrientation(orient)
   b.barTex = b.hp:GetStatusBarTexture()
-  if look.bar == "dark" then
-    b.hpbg:SetColorTexture(0.45, 0.05, 0.05, 0.9)
-  else
-    b.hpbg:SetColorTexture(0.05, 0.05, 0.05, 0.85)
+  if b.inc then
+    b.inc:SetStatusBarTexture(TEX[look.tex] or TEX.blizzard)
+    b.inc:SetStatusBarColor(0.3, 1, 0.5, 0.55)
+    b.inc:SetOrientation(orient)
+    b.inc:ClearAllPoints()
+    if vert then
+      -- fills upwards: incoming heals sit on top of the health
+      b.inc:SetPoint("BOTTOMLEFT", b.barTex, "TOPLEFT")
+      b.inc:SetPoint("BOTTOMRIGHT", b.barTex, "TOPRIGHT")
+      b.inc:SetHeight(math.max(1, (b:GetHeight() or 2) - 2))
+    else
+      b.inc:SetPoint("TOPLEFT", b.barTex, "TOPRIGHT")
+      b.inc:SetPoint("BOTTOMLEFT", b.barTex, "BOTTOMRIGHT")
+      b.inc:SetWidth(math.max(1, (b:GetWidth() or 2) - 2))
+    end
+    if look.inc == false then b.inc:Hide() end
   end
+  ApplyBg(b, nil)
   JH.LayoutButton(b)
   if b.unit and UnitExists(b.unit) then JH.UpdateButton(b) else SetBarColor(b, 0, 0.8, 0) end
 end
@@ -359,33 +674,67 @@ function JH.BuildVisuals(self)
   hpbg:SetAllPoints(); hpbg:SetColorTexture(0.05, 0.05, 0.05, 0.85)
   self.hp, self.hpbg = hp, hpbg
   self.barTex = hp:GetStatusBarTexture()
+  if hp.SetClipsChildren then pcall(hp.SetClipsChildren, hp, true) end -- incoming bar stops at the edge
 
-  local name = hp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  -- incoming heals: starts where the health fill ends (anchored in StyleButton)
+  local inc = CreateFrame("StatusBar", nil, hp)
+  inc:SetFrameLevel(hp:GetFrameLevel() + 1)
+  inc:SetStatusBarTexture(TEX.blizzard)
+  inc:SetStatusBarColor(0.3, 1, 0.5, 0.55)
+  inc:SetMinMaxValues(0, 1); inc:SetValue(0)
+  inc:Hide()
+  self.inc = inc
+
+  -- text sits on its own layer above the incoming-heal bar
+  local text = CreateFrame("Frame", nil, hp)
+  text:SetAllPoints()
+  text:SetFrameLevel(hp:GetFrameLevel() + 3)
+  self.textLayer = text
+
+  local marker = text:CreateTexture(nil, "OVERLAY")
+  marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+  marker:SetSize(10, 10); marker:SetPoint("LEFT", 2, 0)
+  marker:Hide()
+  self.marker = marker
+
+  local name = text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   name:SetPoint("LEFT", 3, 0); name:SetPoint("RIGHT", -3, 0)
   name:SetWordWrap(false)
   self.name = name
 
-  local pct = hp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  local pct = text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   pct:SetPoint("RIGHT", -3, 0)
   self.pct = pct
 
-  local status = hp:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  local status = text:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   status:SetPoint("RIGHT", -3, 0)
   status:SetTextColor(1, 0.3, 0.3)
   self.status = status
 
-  self.icons = {}
-  for i = 1, MAX_HOTS do
+  -- icon pools: your HoTs, other buffs, debuffs (debuffs get a red edge)
+  local function Icon(edge)
     local ic = CreateFrame("Frame", nil, hp)
+    ic:SetFrameLevel(hp:GetFrameLevel() + 4)
     ic:SetSize(10, 10)
-    ic:SetPoint("RIGHT", -2 - (i - 1) * 11, 0)
+    if edge then
+      ic.edge = ic:CreateTexture(nil, "BACKGROUND")
+      ic.edge:SetPoint("TOPLEFT", -1, 1); ic.edge:SetPoint("BOTTOMRIGHT", 1, -1)
+      ic.edge:SetColorTexture(edge[1], edge[2], edge[3], 1)
+    end
     ic.tex = ic:CreateTexture(nil, "ARTWORK"); ic.tex:SetAllPoints()
     ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     ic.cd = CreateFrame("Cooldown", nil, ic, "CooldownFrameTemplate")
     ic.cd:SetAllPoints(); ic.cd:SetReverse(true)
     if ic.cd.SetHideCountdownNumbers then ic.cd:SetHideCountdownNumbers(true) end
     ic:Hide()
-    self.icons[i] = ic
+    return ic
+  end
+  self.icons, self.buffIcons, self.debuffIcons = {}, {}, {}
+  for i = 1, MAX_HOTS do
+    self.icons[i] = Icon()
+    self.icons[i]:SetPoint("RIGHT", -2 - (i - 1) * 11, 0)
+    self.buffIcons[i] = Icon()
+    self.debuffIcons[i] = Icon({ 0.8, 0.1, 0.1 })
   end
 
   self.sel    = MakeBorder(self, 1, 1, 1, 1)          -- your current target
@@ -395,20 +744,38 @@ function JH.BuildVisuals(self)
 
 end
 
+-- Errors inside a bar are caught here: the first one is printed in chat and kept
+-- for /fh debug, instead of silently leaving an empty, invisible bar.
+local function BarError(what, err)
+  if JH.barError then return end
+  JH.barError = what .. ": " .. tostring(err)
+  JH.lastError = JH.barError
+  if JH.Print then JH.Print("|cffff5555Error|r in a bar (" .. JH.barError .. "). Please report it.") end
+end
+
 function FaithHeals_UnitOnLoad(self)
   JH.buttons[self] = true
-  JH.BuildVisuals(self)
+  local ok, err = pcall(JH.BuildVisuals, self)
+  if not ok then return BarError("making a bar", err) end
+  pcall(self.RegisterForClicks, self, "AnyUp", "AnyDown") -- both: see ClickType in Core.lua
 
   self:SetScript("OnAttributeChanged", function(s, attr, value)
-    if attr == "unit" then SetUnit(s, value) end
+    if attr == "unit" then
+      local okU, errU = pcall(SetUnit, s, value)
+      if not okU then BarError("showing " .. tostring(value), errU) end
+    end
   end)
   self:SetScript("OnEvent", Button_OnEvent)
+  self:HookScript("OnClick", function(s, button, down) JH.BarPostClick(s, button, down) end)
   self:SetScript("OnEnter", function(s) JH.ShowTooltip(s) end)
   self:SetScript("OnLeave", function() GameTooltip:Hide() end)
   self:SetScript("OnShow", function(s) JH.LayoutButton(s); JH.UpdateButton(s) end)
   self:SetScript("OnHide", function(s) auraDirty[s] = nil end)
   self:SetScript("OnSizeChanged", function(s) JH.LayoutButton(s) end)
-  if JH.db then JH.StyleButton(self) end
+  if JH.db then
+    local okS, errS = pcall(JH.StyleButton, self)
+    if not okS then BarError("styling a bar", errS) end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -426,15 +793,74 @@ function JH.UpdateMover()
   JH.grip:SetShown(show)
 end
 
+---------------------------------------------------------------------------
+-- Layouts: each group size has its own bar size and number of columns.
+-- Party and raid each get their own secure header (the player always shows
+-- in the party one, and raids are grouped by raid group).
+---------------------------------------------------------------------------
+JH.LAYOUTS = {
+  { id = "solo",   label = "Solo",    units = 1 },
+  { id = "party",  label = "Party",   units = 5 },
+  { id = "raid10", label = "Raid 10", units = 10 },
+  { id = "raid20", label = "Raid 20", units = 20 },
+  { id = "raid25", label = "Raid 25", units = 25 },
+  { id = "raid40", label = "Raid 40", units = 40 },
+}
+local LAYOUT_BY_ID = {}
+for _, l in ipairs(JH.LAYOUTS) do LAYOUT_BY_ID[l.id] = l end
+JH.LAYOUT_BY_ID = LAYOUT_BY_ID
+
+-- The layout for n players (also used for test bars)
+function JH.LayoutForCount(n)
+  if n <= 1 then return "solo" elseif n <= 5 then return "party"
+  elseif n <= 10 then return "raid10" elseif n <= 20 then return "raid20"
+  elseif n <= 25 then return "raid25" end
+  return "raid40"
+end
+
+-- The layout for the group you are in now
+function JH.GroupLayout()
+  if IsInRaid() then return JH.LayoutForCount(math.max(6, GetNumGroupMembers())) end
+  if IsInGroup() then return "party" end
+  return "solo"
+end
+
+-- Pick the layout to use now (the test bars' size while they are shown)
+function JH.ChooseLayout()
+  JH.active = JH.testCount and JH.LayoutForCount(JH.testCount) or JH.GroupLayout()
+  return JH.active
+end
+
+function JH.Size(id)
+  return JH.db.sizes[id or JH.active or "party"] or JH.defaults.sizes.party
+end
+
+function JH.BarSize()
+  local s = JH.Size()
+  return s.w, s.h
+end
+
+-- Bars per column (or per row), and the number of columns, for a layout
+function JH.PerColumn(id)
+  local l = LAYOUT_BY_ID[id or JH.active or "party"] or LAYOUT_BY_ID.party
+  local cols = math.max(1, math.min(l.units, tonumber(JH.Size(l.id).cols) or 1))
+  return math.ceil(l.units / cols), cols
+end
+
+function JH.ActiveHeader()
+  return IsInRaid() and JH.raidHeader or JH.partyHeader
+end
+
 -- Resize every frame live (out of combat). The saved size is applied to new
 -- frames through ApplyAll when the drag ends.
 function JH.SetButtonSize(w, h)
   if InCombatLockdown() then return end
-  JH.db.width  = math.floor(math.max(30, math.min(300, w)) + 0.5)
-  JH.db.height = math.floor(math.max(12, math.min(150, h)) + 0.5)
-  for b in pairs(JH.buttons) do b:SetSize(JH.db.width, JH.db.height) end
-  -- poke the header so it re-lays out its children
-  JH.header:SetAttribute("unitsPerColumn", JH.header:GetAttribute("unitsPerColumn"))
+  local s = JH.Size()
+  s.w = math.floor(math.max(30, math.min(300, w)) + 0.5)
+  s.h = math.floor(math.max(12, math.min(150, h)) + 0.5)
+  for b in pairs(JH.buttons) do b:SetSize(s.w, s.h) end
+  local hdr = JH.ActiveHeader()
+  hdr:SetAttribute("unitsPerColumn", hdr:GetAttribute("unitsPerColumn")) -- re-layout
   if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
@@ -442,7 +868,7 @@ end
 function JH.SetScale(s)
   if InCombatLockdown() then return end
   JH.db.scale = math.floor(math.max(0.5, math.min(2, s)) * 100 + 0.5) / 100
-  JH.header:SetScale(JH.db.scale)
+  for _, h in ipairs(JH.headers) do h:SetScale(JH.db.scale) end
   if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
@@ -454,16 +880,20 @@ local function CountLayout()
     for b in pairs(JH.buttons) do if b:IsVisible() then n = n + 1 end end
   end
   n = math.max(1, n)
-  local per = math.max(1, JH.db.layout.per or 5)
+  local per = JH.PerColumn()
   local along, across = math.min(n, per), math.ceil(n / per)
   if JH.db.layout.grow == "right" then return along, across end
   return across, along
 end
 
-local function CreateGrip(header)
+function JH.AnchorGrip(frame)
+  JH.grip:ClearAllPoints()
+  JH.grip:SetPoint("TOPLEFT", frame, "BOTTOMRIGHT", -4, 4)
+end
+
+local function CreateGrip()
   local g = CreateFrame("Button", "FaithHealsResizeGrip", UIParent)
   g:SetSize(16, 16)
-  g:SetPoint("TOPLEFT", header, "BOTTOMRIGHT", -4, 4)
   g:SetFrameStrata("HIGH")
   g:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
   g:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
@@ -480,8 +910,9 @@ local function CreateGrip(header)
     if InCombatLockdown() then return end
     local x, y = GetCursorPosition()
     local cols, rows = CountLayout()
-    self.drag = { x = x, y = y, w = JH.db.width, h = JH.db.height, cols = cols, rows = rows,
-                  es = JH.header:GetEffectiveScale() }
+    local w, h = JH.BarSize()
+    self.drag = { x = x, y = y, w = w, h = h, cols = cols, rows = rows,
+                  es = JH.partyHeader:GetEffectiveScale() }
     self:SetScript("OnUpdate", Drag)
   end)
   g:SetScript("OnMouseUp", function(self)
@@ -490,9 +921,10 @@ local function CreateGrip(header)
   end)
   g:SetScript("OnMouseWheel", function(_, delta) JH.SetScale((JH.db.scale or 1) + delta * 0.05) end)
   g:SetScript("OnEnter", function(self)
+    local l = LAYOUT_BY_ID[JH.active or "party"]
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("FaithHeals")
-    GameTooltip:AddLine("Drag: resize frames", 1, 1, 1)
+    GameTooltip:AddLine("FaithHeals - " .. (l and l.label or ""))
+    GameTooltip:AddLine("Drag: resize the bars for this group size", 1, 1, 1)
     GameTooltip:AddLine("Mouse wheel: scale everything", 1, 1, 1)
     GameTooltip:Show()
   end)
@@ -501,8 +933,18 @@ local function CreateGrip(header)
 end
 
 ---------------------------------------------------------------------------
--- Group header (party + raid, handled securely by Blizzard's template)
+-- Group headers (handled securely by Blizzard's template)
 ---------------------------------------------------------------------------
+local function NewHeader(name, maxUnits)
+  local h = CreateFrame("Frame", name, UIParent, "SecureGroupHeaderTemplate")
+  h:SetPoint("TOPLEFT", JH.mover, "BOTTOMLEFT", 0, -2)
+  h:SetAttribute("template", "FaithHealsUnitTemplate")
+  h:SetAttribute("templateType", "Button")
+  h.maxUnits = maxUnits
+  h:Hide() -- shown from ApplyAll once click attributes and layout are in place
+  return h
+end
+
 function JH.CreateHeader()
   local mover = CreateFrame("Frame", "FaithHealsMover", UIParent)
   mover:SetSize(150, 14)
@@ -522,48 +964,24 @@ function JH.CreateHeader()
   JH.mover = mover
   JH.PlaceHeader()
 
-  local h = CreateFrame("Frame", "FaithHealsHeader", UIParent, "SecureGroupHeaderTemplate")
-  h:SetPoint("TOPLEFT", mover, "BOTTOMLEFT", 0, -2)
-  h:SetAttribute("template", "FaithHealsUnitTemplate")
-  h:SetAttribute("templateType", "Button")
-  h:SetAttribute("showParty", true)
-  h:SetAttribute("showRaid", true)
-  h:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
-  h:Hide() -- shown from ApplyAll once click attributes and layout are in place
-  JH.header = h
-  JH.grip = CreateGrip(h)
+  -- Solo and party: you + party1-4. Raid: raid1-40 by raid group.
+  JH.partyHeader = NewHeader("FaithHealsParty", 5)
+  JH.partyHeader:SetAttribute("showParty", true)
+  JH.partyHeader:SetAttribute("showRaid", false)
+  JH.raidHeader = NewHeader("FaithHealsRaid", 40)
+  JH.raidHeader:SetAttribute("showRaid", true)
+  JH.raidHeader:SetAttribute("showParty", false)
+  JH.raidHeader:SetAttribute("showSolo", false)
+  JH.raidHeader:SetAttribute("showPlayer", true)
+  JH.headers = { JH.partyHeader, JH.raidHeader }
+  JH.grip = CreateGrip()
+  JH.AnchorGrip(JH.partyHeader)
 end
 
--- Arrange the bars: direction, bars per column/row, sorting, spacing.
--- Out of combat only (ApplyAll takes care of that).
-function JH.ApplyLayout()
-  if InCombatLockdown() then return end
-  local L, h = JH.db.layout, JH.header
-  local sp  = math.max(0, math.min(20, tonumber(L.spacing) or 2))
-  local per = math.max(1, math.min(40, tonumber(L.per) or 5))
-
-  for b in pairs(JH.buttons) do b:ClearAllPoints() end
-
-  h:SetAttribute("showSolo", L.solo ~= false)
-  h:SetAttribute("showPlayer", L.player ~= false)
-
-  if L.sort == "role" then
-    h:SetAttribute("groupBy", "ASSIGNEDROLE")
-    h:SetAttribute("groupingOrder", "TANK,HEALER,DAMAGER,NONE")
-    h:SetAttribute("sortMethod", "NAME")
-  elseif L.sort == "name" then
-    h:SetAttribute("groupBy", nil)
-    h:SetAttribute("groupingOrder", nil)
-    h:SetAttribute("sortMethod", "NAME")
-  else
-    h:SetAttribute("groupBy", "GROUP")
-    h:SetAttribute("groupingOrder", "1,2,3,4,5,6,7,8")
-    h:SetAttribute("sortMethod", "INDEX")
-  end
-
+local function Arrange(h, per, cols, sp, grow)
   h:SetAttribute("columnSpacing", sp + 1)
-  h:SetAttribute("maxColumns", math.ceil(40 / per))
-  if L.grow == "right" then
+  h:SetAttribute("maxColumns", cols)
+  if grow == "right" then
     -- rows: bars go left to right, new rows below
     h:SetAttribute("xOffset", sp)
     h:SetAttribute("yOffset", 0)
@@ -579,17 +997,100 @@ function JH.ApplyLayout()
   h:SetAttribute("unitsPerColumn", per) -- last: triggers the final re-layout
 end
 
+local function Sorting(h, sort, raid)
+  if sort == "role" then
+    h:SetAttribute("groupBy", "ASSIGNEDROLE")
+    h:SetAttribute("groupingOrder", "TANK,HEALER,DAMAGER,NONE")
+    h:SetAttribute("sortMethod", "NAME")
+  elseif sort == "group" and raid then
+    h:SetAttribute("groupBy", "GROUP")
+    h:SetAttribute("groupingOrder", "1,2,3,4,5,6,7,8")
+    h:SetAttribute("sortMethod", "INDEX")
+  else
+    h:SetAttribute("groupBy", nil)
+    h:SetAttribute("groupingOrder", nil)
+    h:SetAttribute("sortMethod", sort == "name" and "NAME" or "INDEX")
+  end
+end
+
+-- Arrange the bars for the current group size. Out of combat only (ApplyAll waits).
+function JH.ApplyLayout()
+  if InCombatLockdown() then return end
+  local L = JH.db.layout
+  local sp = math.max(0, math.min(20, tonumber(L.spacing) or 2))
+  local per, cols = JH.PerColumn()
+  local w, h = JH.BarSize()
+
+  for b in pairs(JH.buttons) do b:ClearAllPoints(); b:SetSize(w, h) end
+
+  local p, r = JH.partyHeader, JH.raidHeader
+  p:SetAttribute("showSolo", L.solo ~= false)
+  p:SetAttribute("showPlayer", L.player ~= false)
+  p:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  r:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  Sorting(p, L.sort, false)
+  Sorting(r, L.sort, true)
+  Arrange(p, per, cols, sp, L.grow)
+  Arrange(r, per, cols, sp, L.grow)
+  if not JH.testCount then JH.AnchorGrip(JH.ActiveHeader()) end
+end
+
 ---------------------------------------------------------------------------
 -- Shared events and one light timer for everything
 ---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+-- /fh heals: what the game reports about incoming heals (to find why none show)
+---------------------------------------------------------------------------
+JH.healEvents = 0
+local hev = CreateFrame("Frame")
+JH.healEventOK = pcall(hev.RegisterEvent, hev, "UNIT_HEAL_PREDICTION")
+local function HealValue(u)
+  if not UnitGetIncomingHeals then return "no function" end
+  local ok, v = pcall(UnitGetIncomingHeals, u)
+  if not ok then return "error: " .. tostring(v) end
+  if IsSecret(v) then return "secret (hidden in combat)" end
+  return tostring(v)
+end
+hev:SetScript("OnEvent", function(_, _, unit)
+  JH.healEvents = JH.healEvents + 1
+  if JH.debugHeals and type(unit) == "string" and (unit == "player" or unit:match("^party%d") or unit:match("^raid%d")) then
+    JH.Print(("heal event: %s [%s] incoming=%s"):format(unit, tostring(UnitName(unit)), HealValue(unit)))
+  end
+end)
+
+function JH.HealsReport()
+  local P = JH.Print
+  P("--- incoming heals ---")
+  P(("UnitGetIncomingHeals: %s | UNIT_HEAL_PREDICTION: %s | heal events seen: %d"):format(
+    UnitGetIncomingHeals and "yes" or "MISSING", JH.healEventOK and "ok" or "NOT AVAILABLE", JH.healEvents))
+  P(("newer API: UnitGetDetailedHealPrediction=%s CreateUnitHealPredictionCalculator=%s | setting: %s"):format(
+    tostring(UnitGetDetailedHealPrediction ~= nil), tostring(CreateUnitHealPredictionCalculator ~= nil),
+    (JH.db and JH.db.look.inc == false) and "OFF" or "on"))
+  for b in pairs(JH.buttons) do
+    if b:IsVisible() and b.unit then
+      P(("%s [%s]: incoming=%s, green bar %s"):format(b.unit, tostring(UnitName(b.unit)), HealValue(b.unit),
+        (b.inc and b.inc:IsShown()) and "shown" or "hidden"))
+    end
+  end
+  P(JH.debugHeals and "Watching heal events: heal someone (or get healed) and watch the chat. /fh heals again to stop."
+    or "Stopped watching heal events.")
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+ev:RegisterEvent("RAID_TARGET_UPDATE")
 ev:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_TARGET_CHANGED" then
     for b in pairs(JH.buttons) do if b:IsVisible() then UpdateTarget(b) end end
+  elseif event == "RAID_TARGET_UPDATE" then
+    for b in pairs(JH.buttons) do if b:IsVisible() then UpdateMarker(b) end end
   else
+    -- joined a party or a raid, or the raid grew past 10/20/25: use that layout
+    if JH.headers and JH.active and not JH.testCount and JH.GroupLayout() ~= JH.active then
+      JH.Safe("switching layout", JH.ApplyAll, true)
+    end
     -- the same "raid3" can now be a different person
     for b in pairs(JH.buttons) do if b:IsVisible() then JH.UpdateButton(b) end end
   end

@@ -1,3 +1,35 @@
+# FaithHeals 0.3.0-beta
+
+First beta. A new Spells tab, many new look options, and click-casting fixes.
+
+### Spells tab
+- **Your bindings list:** pick a spell from your spellbook (or Target, Set focus, Assist, Unit menu, Trade), then press the mouse button or key you want, with Alt, Ctrl and Shift combinations.
+- **Ranks:** "Max" always casts your highest rank, or pick a fixed rank.
+- **Any key works:** the 12 thumb buttons of an MMO mouse and the wheel cast on the bar under the mouse and keep their normal job everywhere else.
+- Option: keys cast on your target when the mouse isn't over a bar.
+
+### On the bars
+- **Health %** on every bar size, coloured white, like the name, yellow, or by health (green to red).
+- **Incoming heals** as a light green bar right after the health.
+- **Icons, one toggle each**, on every bar in the group (your own too): **My HoTs** (only your HoTs, no more Arcane Intellect there), **Buffs**, **Debuffs** (all, or only ones you can dispel). Each with its own max (1-4) and size (50-200%).
+- Purple border when you can dispel a debuff (on/off), raid markers (skull, star ...).
+
+### Look & layout
+- New **Bars & text** tab: font, text size, outline, text shadow, name colour, length and position, background colour, fill direction (left to right by default, like Blizzard).
+- **A size per group size:** Solo, Party, Raid 10, 20, 25 and 40 each have their own bar width, height and columns, and the bars switch by themselves.
+- Minimap button (left-click: settings, right-click: lock).
+- Test bars show all of the above without a group: `/fh test 20`.
+
+### Fixed
+- **Target / Set focus / Assist** did nothing: they now run as `/target` on the bar you click.
+- Mouse clicks on the bars could be ignored.
+- Settings were not saved when closing the window with the X.
+
+### Commands
+`/fh`, `/fh test 20`, `/fh unlock`, `/fh debug`, `/fh binds`, `/fh clicks` (what each click does), `/fh heals` (what the game reports about incoming heals).
+
+Settings from 0.1.0-alpha are moved over automatically. Not everything is tested in combat yet: please report problems (`/fh debug` helps).
+
 # FaithHeals 0.1.0-alpha
 
 - **First test version.** HealBot-style party and raid frames for healers.
