@@ -10,7 +10,9 @@ HealBot-style healing frames for WoW Forever and Midnight: party and raid bars, 
 - Seven modifier combinations per button (Click, Shift, Ctrl, Alt, Ctrl+Shift, Alt+Shift, Alt+Ctrl)
 - Tooltip showing what every button casts with the modifier you are holding
 - Your own HoTs with timers, dispellable-debuff border, target highlight and range fade
-- Four themes: Classic HealBot, Class colours, Slim class, Dark
+- Four themes (Classic HealBot, Class colours, Slim class, Dark), or pick bar colour, name colour and texture yourself
+- Layout options: columns or rows, sort by group, role or name, bars per column, spacing
+- Light on the CPU: per-unit events, event-driven range, throttled aura updates
 - Drag to move, drag the corner to resize, mouse wheel to scale; text and icons scale with the bars
 
 ## Install

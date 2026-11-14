@@ -9,30 +9,30 @@ local TEX = {
 }
 
 ---------------------------------------------------------------------------
--- Themes
+-- Look
 --   bar:  "health" = green > yellow > red by health, "class" = class colour,
---         "dark" = dark bar
+--         "dark" = dark bar with red where health is missing
 --   name: "white" or "class"
---   pct:  show health % (needs a taller bar)
+--   tex:  "blizzard", "raid", "flat"
+--   pct:  show health % (only on bars 30+ high)
+--   hots: show your own HoT icons
+-- A theme is a preset of these plus a suggested bar size.
 ---------------------------------------------------------------------------
 JH.THEMES = {
-  healbot = { label = "Classic HealBot", bar = "health", name = "white", pct = false, tex = "blizzard",
-              w = 100, h = 24, bg = { 0.05, 0.05, 0.05, 0.85 } },
-  class   = { label = "Class colours",   bar = "class",  name = "white", pct = true,  tex = "raid",
-              w = 90,  h = 38, bg = { 0.05, 0.05, 0.05, 0.85 } },
-  slim    = { label = "Slim class",      bar = "class",  name = "white", pct = false, tex = "blizzard",
-              w = 100, h = 22, bg = { 0.05, 0.05, 0.05, 0.85 } },
-  dark    = { label = "Dark",            bar = "dark",   name = "class", pct = true,  tex = "flat",
-              w = 90,  h = 38, bg = { 0.45, 0.05, 0.05, 0.9 } },
+  healbot = { label = "Classic HealBot", bar = "health", name = "white", pct = false, tex = "blizzard", w = 100, h = 24 },
+  class   = { label = "Class colours",   bar = "class",  name = "white", pct = true,  tex = "raid",     w = 90,  h = 38 },
+  slim    = { label = "Slim class",      bar = "class",  name = "white", pct = false, tex = "blizzard", w = 100, h = 22 },
+  dark    = { label = "Dark",            bar = "dark",   name = "class", pct = true,  tex = "flat",     w = 90,  h = 38 },
 }
 JH.THEME_ORDER = { "healbot", "class", "slim", "dark" }
 
-local function Theme()
-  return JH.THEMES[JH.db and JH.db.theme] or JH.THEMES.healbot
+local DEFAULT_LOOK = { bar = "health", name = "white", tex = "blizzard", pct = false, hots = true }
+local function Look()
+  return (JH.db and JH.db.look) or DEFAULT_LOOK
 end
 
--- Midnight/Forever can hand addons "secret" values in combat. These helpers
--- keep a secret value from breaking our logic.
+-- Midnight/Forever can hand addons "secret" values in combat. Never compare
+-- or do maths on one; only pass it to widget functions that accept it.
 local function IsSecret(v) return issecretvalue and issecretvalue(v) end
 
 local function MakeBorder(parent, size, r, g, b)
@@ -46,54 +46,63 @@ local function MakeBorder(parent, size, r, g, b)
   return f
 end
 
--- Colour curve for the health-coloured theme (works with secret health values)
+-- Colour curve for health-coloured bars (works with secret health values)
 local healthCurve
+local function BuildCurve()
+  local c = C_CurveUtil.CreateColorCurve()
+  c:AddPoint(0,   CreateColor(1, 0, 0, 1))
+  c:AddPoint(0.5, CreateColor(1, 0.9, 0, 1))
+  c:AddPoint(1,   CreateColor(0, 0.8, 0, 1))
+  return c
+end
 local function HealthCurve()
-  if healthCurve ~= nil then return healthCurve end
-  healthCurve = false
-  if C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor then
-    pcall(function()
-      local c = C_CurveUtil.CreateColorCurve()
-      c:AddPoint(0,   CreateColor(1, 0, 0, 1))
-      c:AddPoint(0.5, CreateColor(1, 0.9, 0, 1))
-      c:AddPoint(1,   CreateColor(0, 0.8, 0, 1))
-      healthCurve = c
-    end)
+  if healthCurve == nil then
+    healthCurve = false
+    if C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor and UnitHealthPercent then
+      local ok, c = pcall(BuildCurve)
+      if ok and c then healthCurve = c end
+    end
   end
   return healthCurve
 end
+local function CurveRGB(u, curve)
+  return UnitHealthPercent(u, true, curve):GetRGB()
+end
+local SCALE100 = CurveConstants and CurveConstants.ScaleTo100
+local EASE = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
 local function SetBarColor(b, r, g, bl)
-  b.hp:GetStatusBarTexture():SetVertexColor(r, g, bl)
+  b.barTex:SetVertexColor(r, g, bl)
 end
 
 ---------------------------------------------------------------------------
--- Updates
+-- Updates. Each one is small and only runs when the game says that thing
+-- changed for that unit.
 ---------------------------------------------------------------------------
 local function UpdateName(b)
   local u = b.unit
   if not u or not UnitExists(u) then return end
-  local th = Theme()
+  local look = Look()
   b.name:SetText(UnitName(u) or "")
   local _, class = UnitClass(u)
   local c = class and RAID_CLASS_COLORS[class]
-  if th.name == "class" and c then
+  if look.name == "class" and c then
     b.name:SetTextColor(c.r, c.g, c.b)
   else
     b.name:SetTextColor(1, 1, 1)
   end
-  if th.bar == "class" then
+  if look.bar == "class" then
     if c then SetBarColor(b, c.r, c.g, c.b) else SetBarColor(b, 0.2, 0.8, 0.2) end
-  elseif th.bar == "dark" then
+  elseif look.bar == "dark" then
     SetBarColor(b, 0.16, 0.16, 0.16)
   end
 end
 
 local function UpdateHealthColor(b, u)
   local cv = HealthCurve()
-  if cv and UnitHealthPercent then
-    local ok, col = pcall(UnitHealthPercent, u, true, cv)
-    if ok and col and col.GetRGB and pcall(function() SetBarColor(b, col:GetRGB()) end) then return end
+  if cv then
+    local ok, r, g, bl = pcall(CurveRGB, u, cv)
+    if ok and pcall(b.barTex.SetVertexColor, b.barTex, r, g, bl) then return end
   end
   local cur, max = UnitHealth(u), UnitHealthMax(u)
   if not IsSecret(cur) and not IsSecret(max) and max and max > 0 then
@@ -122,57 +131,58 @@ local function UpdateHealth(b)
   -- StatusBars accept secret values, so this works in combat too
   b.hp:SetMinMaxValues(0, UnitHealthMax(u))
   local cur = UnitHealth(u)
-  local interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
-  if not (interp and pcall(b.hp.SetValue, b.hp, cur, interp)) then
+  if not (EASE and pcall(b.hp.SetValue, b.hp, cur, EASE)) then
     b.hp:SetValue(cur)
   end
 
-  if Theme().bar == "health" then UpdateHealthColor(b, u) end
+  if Look().bar == "health" then UpdateHealthColor(b, u) end
 
-  -- Health % text (guarded: API differs between builds)
-  local ok = false
-  if b.showPct and UnitHealthPercent and CurveConstants and CurveConstants.ScaleTo100 then
-    ok = pcall(function()
-      b.pct:SetFormattedText("%.0f%%", UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
-    end)
+  if b.showPct then
+    local ok = false
+    if UnitHealthPercent and SCALE100 then
+      local ok1, v = pcall(UnitHealthPercent, u, true, SCALE100)
+      if ok1 then ok = pcall(b.pct.SetFormattedText, b.pct, "%.0f%%", v) end
+    end
+    if not ok then b.pct:SetText("") end
   end
-  if not ok then b.pct:SetText("") end
 end
 
 -- In slim bars the HoT icons sit on the right, so keep the name clear of them
 local function FitName(b, shown)
-  if not b.slim then return end
-  local inset = 3 + (shown or 0) * ((b.iconSize or 10) + 1)
+  if not b.slim or b.fitShown == shown then return end
+  b.fitShown = shown
   b.name:ClearAllPoints()
   b.name:SetPoint("LEFT", 3, 0)
-  b.name:SetPoint("RIGHT", -inset, 0)
+  b.name:SetPoint("RIGHT", -(3 + shown * ((b.iconSize or 10) + 1)), 0)
 end
 
 local function UpdateAuras(b)
   local u = b.unit
   local shown = 0
   if u and UnitExists(u) and C_UnitAuras and C_UnitAuras.GetUnitAuras then
-    -- Your own HoTs on this unit
-    local ok, list = pcall(C_UnitAuras.GetUnitAuras, u, "HELPFUL|PLAYER", MAX_HOTS)
-    if ok and type(list) == "table" then
-      for i = 1, math.min(#list, MAX_HOTS) do
-        local aura, ic = list[i], b.icons[i]
-        pcall(ic.tex.SetTexture, ic.tex, aura.icon)
-        local cdOk = false
-        if C_UnitAuras.GetAuraDuration and ic.cd.SetCooldownFromDurationObject then
-          local okD, dur = pcall(C_UnitAuras.GetAuraDuration, u, aura.auraInstanceID)
-          if okD and dur then cdOk = pcall(ic.cd.SetCooldownFromDurationObject, ic.cd, dur) end
-        end
-        if not cdOk then
-          local exp, d = aura.expirationTime, aura.duration
-          if exp and d and not IsSecret(exp) and not IsSecret(d) and d > 0 then
-            ic.cd:SetCooldown(exp - d, d)
-          else
-            ic.cd:Clear()
+    if Look().hots ~= false then
+      -- Your own HoTs on this unit
+      local ok, list = pcall(C_UnitAuras.GetUnitAuras, u, "HELPFUL|PLAYER", MAX_HOTS)
+      if ok and type(list) == "table" then
+        for i = 1, math.min(#list, MAX_HOTS) do
+          local aura, ic = list[i], b.icons[i]
+          pcall(ic.tex.SetTexture, ic.tex, aura.icon)
+          local cdOk = false
+          if C_UnitAuras.GetAuraDuration and ic.cd.SetCooldownFromDurationObject then
+            local okD, dur = pcall(C_UnitAuras.GetAuraDuration, u, aura.auraInstanceID)
+            if okD and dur then cdOk = pcall(ic.cd.SetCooldownFromDurationObject, ic.cd, dur) end
           end
+          if not cdOk then
+            local exp, d = aura.expirationTime, aura.duration
+            if exp and d and not IsSecret(exp) and not IsSecret(d) and d > 0 then
+              ic.cd:SetCooldown(exp - d, d)
+            else
+              ic.cd:Clear()
+            end
+          end
+          ic:Show()
+          shown = i
         end
-        ic:Show()
-        shown = i
       end
     end
     -- Debuff you can dispel -> coloured border
@@ -189,23 +199,85 @@ local function UpdateTarget(b)
   b.sel:SetShown(b.unit and UnitExists(b.unit) and UnitIsUnit(b.unit, "target") or false)
 end
 
+---------------------------------------------------------------------------
+-- Range. The game tells us when someone goes in or out of range
+-- (UNIT_IN_RANGE_UPDATE); a slow check twice a second is only a safety net.
+-- Alpha is only touched when it actually changes.
+---------------------------------------------------------------------------
+local function ApplyRange(b, inRange, checked)
+  local fade = (JH.db and JH.db.rangeAlpha) or 0.4
+  if IsSecret(inRange) or IsSecret(checked) then
+    -- can't look at the value in combat, but the game can apply it for us
+    if b.SetAlphaFromBoolean then pcall(b.SetAlphaFromBoolean, b, inRange, 1, fade) end
+    b.alphaState = nil
+    return
+  end
+  local a = (checked and not inRange) and fade or 1
+  if b.alphaState ~= a then
+    b.alphaState = a
+    b:SetAlpha(a)
+  end
+end
+
+local function UpdateRange(b)
+  local u = b.unit
+  if not u then return end
+  if UnitIsUnit(u, "player") then return ApplyRange(b, true, true) end
+  local ok, inRange, checked = pcall(UnitInRange, u)
+  if ok then ApplyRange(b, inRange, checked) end
+end
+
 function JH.UpdateButton(b)
   if not b.unit or not UnitExists(b.unit) then return end
-  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b)
+  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b); UpdateRange(b)
 end
 
 ---------------------------------------------------------------------------
--- Theme + layout: text and icons scale with the frame size
+-- Per-frame events: every bar only listens to its own unit, so nothing runs
+-- for nameplates, enemies or people outside the group.
+---------------------------------------------------------------------------
+local UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA", "UNIT_CONNECTION",
+                      "UNIT_NAME_UPDATE", "UNIT_IN_RANGE_UPDATE" }
+local auraDirty = {}
+
+local function Button_OnEvent(b, event, _, arg2)
+  if not b:IsVisible() then return end
+  if event == "UNIT_AURA" then
+    auraDirty[b] = true            -- many aura events in a row become one update
+  elseif event == "UNIT_IN_RANGE_UPDATE" then
+    ApplyRange(b, arg2, true)
+  elseif event == "UNIT_NAME_UPDATE" then
+    UpdateName(b)
+  else
+    UpdateHealth(b)
+  end
+end
+
+local function SetUnit(b, unit)
+  if b.unit ~= unit then
+    b.unit = unit
+    b:UnregisterAllEvents()
+    if unit then
+      for _, e in ipairs(UNIT_EVENTS) do pcall(b.RegisterUnitEvent, b, e, unit) end
+    end
+  end
+  b.alphaState = nil
+  if unit then JH.UpdateButton(b) end
+end
+
+---------------------------------------------------------------------------
+-- Look + layout inside a bar: text and icons scale with the bar size
 ---------------------------------------------------------------------------
 local FONT = (GameFontHighlightSmall and GameFontHighlightSmall:GetFont()) or "Fonts\\FRIZQT__.TTF"
 
 function JH.LayoutButton(b)
   local w, h = b:GetSize()
   if not w or not h or h <= 0 or w <= 0 then return end
-  local th = Theme()
+  local look = Look()
   local tall = h >= 30
   b.slim = not tall
-  b.showPct = th.pct and tall
+  b.showPct = look.pct and tall
+  b.fitShown = nil
 
   local fs = math.max(7, math.min(18, math.floor((tall and h * 0.27 or h * 0.5) + 0.5)))
   b.name:SetFont(FONT, fs, "OUTLINE")
@@ -242,9 +314,14 @@ function JH.LayoutButton(b)
 end
 
 function JH.StyleButton(b)
-  local th = Theme()
-  b.hp:SetStatusBarTexture(TEX[th.tex] or TEX.blizzard)
-  b.hpbg:SetColorTexture(th.bg[1], th.bg[2], th.bg[3], th.bg[4])
+  local look = Look()
+  b.hp:SetStatusBarTexture(TEX[look.tex] or TEX.blizzard)
+  b.barTex = b.hp:GetStatusBarTexture()
+  if look.bar == "dark" then
+    b.hpbg:SetColorTexture(0.45, 0.05, 0.05, 0.9)
+  else
+    b.hpbg:SetColorTexture(0.05, 0.05, 0.05, 0.85)
+  end
   JH.LayoutButton(b)
   if b.unit and UnitExists(b.unit) then JH.UpdateButton(b) else SetBarColor(b, 0, 0.8, 0) end
 end
@@ -282,6 +359,7 @@ function FaithHeals_UnitOnLoad(self)
   local hpbg = hp:CreateTexture(nil, "BACKGROUND")
   hpbg:SetAllPoints(); hpbg:SetColorTexture(0.05, 0.05, 0.05, 0.85)
   self.hp, self.hpbg = hp, hpbg
+  self.barTex = hp:GetStatusBarTexture()
 
   local name = hp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   name:SetPoint("LEFT", 3, 0); name:SetPoint("RIGHT", -3, 0)
@@ -317,14 +395,13 @@ function FaithHeals_UnitOnLoad(self)
   self.hl:SetAllPoints(); self.hl:SetColorTexture(1, 1, 1, 0.15)
 
   self:SetScript("OnAttributeChanged", function(s, attr, value)
-    if attr == "unit" then
-      s.unit = value
-      if value then JH.UpdateButton(s) end
-    end
+    if attr == "unit" then SetUnit(s, value) end
   end)
+  self:SetScript("OnEvent", Button_OnEvent)
   self:SetScript("OnEnter", function(s) JH.ShowTooltip(s) end)
   self:SetScript("OnLeave", function() GameTooltip:Hide() end)
   self:SetScript("OnShow", function(s) JH.LayoutButton(s); JH.UpdateButton(s) end)
+  self:SetScript("OnHide", function(s) auraDirty[s] = nil end)
   self:SetScript("OnSizeChanged", function(s) JH.LayoutButton(s) end)
   if JH.db then JH.StyleButton(self) end
 end
@@ -351,7 +428,8 @@ function JH.SetButtonSize(w, h)
   JH.db.width  = math.floor(math.max(30, math.min(300, w)) + 0.5)
   JH.db.height = math.floor(math.max(12, math.min(150, h)) + 0.5)
   for b in pairs(JH.buttons) do b:SetSize(JH.db.width, JH.db.height) end
-  JH.header:SetAttribute("yOffset", -2) -- poke the header so it re-lays out
+  -- poke the header so it re-lays out its children
+  JH.header:SetAttribute("unitsPerColumn", JH.header:GetAttribute("unitsPerColumn"))
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
 
@@ -362,11 +440,15 @@ function JH.SetScale(s)
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
 
+-- columns, rows currently on screen (used so the resize handle follows the mouse)
 local function CountLayout()
   local n = 0
   for b in pairs(JH.buttons) do if b:IsVisible() then n = n + 1 end end
   n = math.max(1, n)
-  return math.ceil(n / 5), math.min(n, 5)
+  local per = math.max(1, JH.db.layout.per or 5)
+  local along, across = math.min(n, per), math.ceil(n / per)
+  if JH.db.layout.grow == "right" then return along, across end
+  return across, along
 end
 
 local function CreateGrip(header)
@@ -380,18 +462,18 @@ local function CreateGrip(header)
   g:EnableMouseWheel(true)
   g:Hide()
 
+  local function Drag(s)
+    local d = s.drag
+    local cx, cy = GetCursorPosition()
+    JH.SetButtonSize(d.w + (cx - d.x) / d.es / d.cols, d.h + (d.y - cy) / d.es / d.rows)
+  end
   g:SetScript("OnMouseDown", function(self)
     if InCombatLockdown() then return end
     local x, y = GetCursorPosition()
     local cols, rows = CountLayout()
     self.drag = { x = x, y = y, w = JH.db.width, h = JH.db.height, cols = cols, rows = rows,
                   es = JH.header:GetEffectiveScale() }
-    self:SetScript("OnUpdate", function(s)
-      local d = s.drag
-      local cx, cy = GetCursorPosition()
-      local dx, dy = (cx - d.x) / d.es, (d.y - cy) / d.es
-      JH.SetButtonSize(d.w + dx / d.cols, d.h + dy / d.rows)
-    end)
+    self:SetScript("OnUpdate", Drag)
   end)
   g:SetScript("OnMouseUp", function(self)
     self:SetScript("OnUpdate", nil)
@@ -435,67 +517,92 @@ function JH.CreateHeader()
   h:SetPoint("TOPLEFT", mover, "BOTTOMLEFT", 0, -2)
   h:SetAttribute("template", "FaithHealsUnitTemplate")
   h:SetAttribute("templateType", "Button")
-  h:SetAttribute("showPlayer", true)
-  h:SetAttribute("showSolo", true)
   h:SetAttribute("showParty", true)
   h:SetAttribute("showRaid", true)
-  h:SetAttribute("point", "TOP")
-  h:SetAttribute("yOffset", -2)
-  h:SetAttribute("xOffset", 0)
-  h:SetAttribute("groupBy", "GROUP")
-  h:SetAttribute("groupingOrder", "1,2,3,4,5,6,7,8")
-  h:SetAttribute("sortMethod", "INDEX")
-  h:SetAttribute("unitsPerColumn", 5)
-  h:SetAttribute("maxColumns", 8)
-  h:SetAttribute("columnSpacing", 3)
-  h:SetAttribute("columnAnchorPoint", "LEFT")
-  h:Hide() -- shown at PLAYER_LOGIN once click attributes are in place
+  h:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  h:Hide() -- shown from ApplyAll once click attributes and layout are in place
   JH.header = h
   JH.grip = CreateGrip(h)
 end
 
+-- Arrange the bars: direction, bars per column/row, sorting, spacing.
+-- Out of combat only (ApplyAll takes care of that).
+function JH.ApplyLayout()
+  if InCombatLockdown() then return end
+  local L, h = JH.db.layout, JH.header
+  local sp  = math.max(0, math.min(20, tonumber(L.spacing) or 2))
+  local per = math.max(1, math.min(40, tonumber(L.per) or 5))
+
+  for b in pairs(JH.buttons) do b:ClearAllPoints() end
+
+  h:SetAttribute("showSolo", L.solo ~= false)
+  h:SetAttribute("showPlayer", L.player ~= false)
+
+  if L.sort == "role" then
+    h:SetAttribute("groupBy", "ASSIGNEDROLE")
+    h:SetAttribute("groupingOrder", "TANK,HEALER,DAMAGER,NONE")
+    h:SetAttribute("sortMethod", "NAME")
+  elseif L.sort == "name" then
+    h:SetAttribute("groupBy", nil)
+    h:SetAttribute("groupingOrder", nil)
+    h:SetAttribute("sortMethod", "NAME")
+  else
+    h:SetAttribute("groupBy", "GROUP")
+    h:SetAttribute("groupingOrder", "1,2,3,4,5,6,7,8")
+    h:SetAttribute("sortMethod", "INDEX")
+  end
+
+  h:SetAttribute("columnSpacing", sp + 1)
+  h:SetAttribute("maxColumns", math.ceil(40 / per))
+  if L.grow == "right" then
+    -- rows: bars go left to right, new rows below
+    h:SetAttribute("xOffset", sp)
+    h:SetAttribute("yOffset", 0)
+    h:SetAttribute("columnAnchorPoint", "TOP")
+    h:SetAttribute("point", "LEFT")
+  else
+    -- columns: bars go top to bottom, new columns to the right
+    h:SetAttribute("xOffset", 0)
+    h:SetAttribute("yOffset", -sp)
+    h:SetAttribute("columnAnchorPoint", "LEFT")
+    h:SetAttribute("point", "TOP")
+  end
+  h:SetAttribute("unitsPerColumn", per) -- last: triggers the final re-layout
+end
+
 ---------------------------------------------------------------------------
--- Event dispatch
+-- Shared events and one light timer for everything
 ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA", "UNIT_CONNECTION",
-                     "UNIT_NAME_UPDATE", "UNIT_FLAGS", "PLAYER_TARGET_CHANGED",
-                     "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD" }) do
-  ev:RegisterEvent(e)
-end
-ev:SetScript("OnEvent", function(_, event, unit)
+ev:RegisterEvent("PLAYER_TARGET_CHANGED")
+ev:RegisterEvent("GROUP_ROSTER_UPDATE")
+ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+ev:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_TARGET_CHANGED" then
-    for b in pairs(JH.buttons) do UpdateTarget(b) end
-  elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-    for b in pairs(JH.buttons) do if b:IsVisible() then JH.UpdateButton(b) end end
+    for b in pairs(JH.buttons) do if b:IsVisible() then UpdateTarget(b) end end
   else
-    for b in pairs(JH.buttons) do
-      if b.unit == unit and b:IsVisible() then
-        if event == "UNIT_AURA" then UpdateAuras(b)
-        elseif event == "UNIT_NAME_UPDATE" then UpdateName(b)
-        else UpdateHealth(b) end
-      end
-    end
+    -- the same "raid3" can now be a different person
+    for b in pairs(JH.buttons) do if b:IsVisible() then JH.UpdateButton(b) end end
   end
 end)
 
--- Range fade, 4x per second
-local elapsed = 0
+local auraT, rangeT = 0, 0
 ev:SetScript("OnUpdate", function(_, dt)
-  elapsed = elapsed + dt
-  if elapsed < 0.25 then return end
-  elapsed = 0
-  for b in pairs(JH.buttons) do
-    local u = b.unit
-    if u and b:IsVisible() then
-      local alpha = 1
-      if not UnitIsUnit(u, "player") then
-        local ok, inRange, checked = pcall(UnitInRange, u)
-        if ok and not IsSecret(inRange) and not IsSecret(checked) and checked and not inRange then
-          alpha = 0.4
-        end
+  auraT = auraT + dt
+  if auraT >= 0.1 then
+    auraT = 0
+    if next(auraDirty) then
+      for b in pairs(auraDirty) do
+        auraDirty[b] = nil
+        if b:IsVisible() then UpdateAuras(b) end
       end
-      b:SetAlpha(alpha)
+    end
+  end
+  rangeT = rangeT + dt
+  if rangeT >= 0.5 then
+    rangeT = 0
+    for b in pairs(JH.buttons) do
+      if b.unit and b:IsVisible() then UpdateRange(b) end
     end
   end
 end)

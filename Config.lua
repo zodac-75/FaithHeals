@@ -1,8 +1,9 @@
 local _, JH = ...
 
 local cfg
-local E          -- working copy being edited: { binds, thumbKeys, theme, offFrameTarget }
+local E          -- working copy being edited until Save & Apply
 local selected = 1
+local RefreshLook
 
 local function NewBox(parent, w)
   local e = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
@@ -26,7 +27,7 @@ local function NewButton(parent, w, text)
   return b
 end
 
-local function NewCheck(parent, text)
+local function NewCheck(parent, text, get, set)
   local c = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
   c:SetSize(24, 24)
   local fs = c.Text or c.text
@@ -36,7 +37,26 @@ local function NewCheck(parent, text)
   end
   fs:SetFontObject("GameFontHighlightSmall")
   fs:SetText(text)
+  c:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
+  function c:Refresh() self:SetChecked(get() and true or false) end
   return c
+end
+
+-- A button that steps through a list of choices each time it is clicked
+local function NewCycle(parent, w, prefix, opts, get, set)
+  local b = NewButton(parent, w)
+  function b:Refresh()
+    local cur, text = get(), "Custom"
+    for _, o in ipairs(opts) do if o[1] == cur then text = o[2] end end
+    self:SetText(prefix .. ": " .. text)
+  end
+  b:SetScript("OnClick", function()
+    local cur, idx = get(), 0
+    for i, o in ipairs(opts) do if o[1] == cur then idx = i end end
+    set(opts[idx % #opts + 1][1])
+    RefreshLook()
+  end)
+  return b
 end
 
 ---------------------------------------------------------------------------
@@ -124,13 +144,9 @@ local function RefreshPanel()
   end
 end
 
-local function RefreshOptions()
-  local db = JH.db
-  cfg.w:SetText(db.width); cfg.h:SetText(db.height); cfg.s:SetText(db.scale)
-  cfg.themeBtn:SetText("Theme: " .. (JH.THEMES[E.theme] or JH.THEMES.healbot).label)
-  cfg.offFrame:SetChecked(E.offFrameTarget and true or false)
-  cfg.tips:SetChecked(E.showBindTips ~= false)
-  cfg.unlock:SetText(db.locked and "Unlock frames" or "Lock frames")
+RefreshLook = function()
+  for _, w in ipairs(cfg.refresh) do w:Refresh() end
+  cfg.unlock:SetText(JH.db.locked and "Unlock frames (move / resize)" or "Lock frames")
 end
 
 local function LoadFromDB()
@@ -139,15 +155,23 @@ local function LoadFromDB()
     binds = JH.deepcopy(db.binds),
     thumbKeys = JH.deepcopy(db.thumbKeys),
     theme = db.theme,
+    look = JH.deepcopy(db.look),
+    layout = JH.deepcopy(db.layout),
     offFrameTarget = db.offFrameTarget,
-    showBindTips = db.showBindTips,
+    showBindTips = db.showBindTips ~= false,
   }
-  RefreshList(); RefreshPanel(); RefreshOptions()
+  cfg.w:SetText(db.width); cfg.h:SetText(db.height); cfg.s:SetText(db.scale)
+  cfg.per:SetText(E.layout.per); cfg.sp:SetText(E.layout.spacing)
+  cfg.fade:SetText(math.floor((db.rangeAlpha or 0.4) * 100 + 0.5))
+  RefreshList(); RefreshPanel(); RefreshLook()
+end
+
+local function Num(box, lo, hi, fallback)
+  return math.max(lo, math.min(hi, tonumber(box:GetText()) or fallback))
 end
 
 local function Save()
   local db = JH.db
-  -- drop empty entries
   local binds = {}
   for id, b in pairs(E.binds) do
     for mod, v in pairs(b) do
@@ -161,39 +185,39 @@ local function Save()
   db.binds = binds
   db.thumbKeys = JH.deepcopy(E.thumbKeys)
   db.theme = E.theme
+  db.look = JH.deepcopy(E.look)
+  db.layout = JH.deepcopy(E.layout)
+  db.layout.per = math.floor(Num(cfg.per, 1, 40, db.layout.per))
+  db.layout.spacing = math.floor(Num(cfg.sp, 0, 20, db.layout.spacing))
   db.offFrameTarget = E.offFrameTarget and true or false
-  db.showBindTips = E.showBindTips ~= false
-  db.width  = math.max(30, math.min(300, tonumber(cfg.w:GetText()) or db.width))
-  db.height = math.max(12, math.min(150, tonumber(cfg.h:GetText()) or db.height))
-  db.scale  = math.max(0.5, math.min(2, tonumber(cfg.s:GetText()) or db.scale))
+  db.showBindTips = E.showBindTips and true or false
+  db.width  = Num(cfg.w, 30, 300, db.width)
+  db.height = Num(cfg.h, 12, 150, db.height)
+  db.scale  = Num(cfg.s, 0.5, 2, db.scale)
+  db.rangeAlpha = Num(cfg.fade, 10, 100, 40) / 100
   JH.ApplyAll()
-  LoadFromDB()
+  if not InCombatLockdown() then LoadFromDB() end
+end
+
+local function ShowPage(n)
+  cfg.pSpells:SetShown(n == 1)
+  cfg.pLook:SetShown(n == 2)
+  cfg.tab1:SetEnabled(n ~= 1)
+  cfg.tab2:SetEnabled(n ~= 2)
 end
 
 ---------------------------------------------------------------------------
--- Build the window
+-- Page 1: spells
 ---------------------------------------------------------------------------
-local function Build()
-  cfg = CreateFrame("Frame", "FaithHealsConfig", UIParent, "BasicFrameTemplateWithInset")
-  cfg:SetSize(700, 600)
-  cfg:SetPoint("CENTER")
-  cfg:SetFrameStrata("DIALOG")
-  cfg:SetMovable(true); cfg:EnableMouse(true); cfg:RegisterForDrag("LeftButton")
-  cfg:SetClampedToScreen(true)
-  cfg:SetScript("OnDragStart", cfg.StartMoving)
-  cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
-  if cfg.TitleText then cfg.TitleText:SetText("FaithHeals - Spells") end
-  tinsert(UISpecialFrames, "FaithHealsConfig")
-
-  -- Left: list of buttons ------------------------------------------------
-  local t1 = Label(cfg, "Button")
-  t1:SetPoint("TOPLEFT", 18, -34)
+local function BuildSpells(p)
+  local t1 = Label(p, "Button")
+  t1:SetPoint("TOPLEFT", 18, -62)
 
   cfg.list = {}
   for i, slot in ipairs(JH.SLOTS) do
-    local lb = CreateFrame("Button", nil, cfg)
+    local lb = CreateFrame("Button", nil, p)
     lb:SetSize(290, 20)
-    lb:SetPoint("TOPLEFT", 14, -52 - (i - 1) * 21 - ((i > 5) and 6 or 0) - ((i > 7) and 6 or 0))
+    lb:SetPoint("TOPLEFT", 14, -80 - (i - 1) * 21 - ((i > 5) and 6 or 0) - ((i > 7) and 6 or 0))
     lb.sel = lb:CreateTexture(nil, "BACKGROUND")
     lb.sel:SetAllPoints(); lb.sel:SetColorTexture(0.1, 0.6, 0.3, 0.45)
     local hl = lb:CreateTexture(nil, "HIGHLIGHT")
@@ -208,17 +232,16 @@ local function Build()
     cfg.list[i] = lb
   end
 
-  -- Right: spells for the selected button ---------------------------------
   local px = 330
-  cfg.slotTitle = Label(cfg, "", "GameFontNormalLarge")
-  cfg.slotTitle:SetPoint("TOPLEFT", px, -36)
-  cfg.slotHint = Label(cfg, "", "GameFontDisableSmall")
-  cfg.slotHint:SetPoint("TOPLEFT", px, -58)
+  cfg.slotTitle = Label(p, "", "GameFontNormalLarge")
+  cfg.slotTitle:SetPoint("TOPLEFT", px, -64)
+  cfg.slotHint = Label(p, "", "GameFontDisableSmall")
+  cfg.slotHint:SetPoint("TOPLEFT", px, -86)
   cfg.slotHint:SetWidth(350); cfg.slotHint:SetJustifyH("LEFT")
 
-  cfg.keyLabel = Label(cfg, "This button sends:", "GameFontHighlightSmall")
-  cfg.keyLabel:SetPoint("TOPLEFT", px, -86)
-  cfg.keyBtn = NewKeyButton(cfg, function(key)
+  cfg.keyLabel = Label(p, "This button sends:", "GameFontHighlightSmall")
+  cfg.keyLabel:SetPoint("TOPLEFT", px, -114)
+  cfg.keyBtn = NewKeyButton(p, function(key)
     local slot = JH.SLOTS[selected]
     if slot.thumb then E.thumbKeys[slot.thumb] = key; RefreshList() end
   end)
@@ -226,10 +249,10 @@ local function Build()
 
   cfg.modBoxes = {}
   for i, m in ipairs(JH.MODS) do
-    local y = -122 - (i - 1) * 28
-    local l = Label(cfg, m.label, "GameFontHighlightSmall")
+    local y = -150 - (i - 1) * 28
+    local l = Label(p, m.label, "GameFontHighlightSmall")
     l:SetPoint("TOPLEFT", px, y - 4)
-    local box = NewBox(cfg, 250)
+    local box = NewBox(p, 250)
     box:SetPoint("TOPLEFT", px + 90, y)
     box:SetScript("OnTextChanged", function(self, user)
       if not user then return end
@@ -241,52 +264,147 @@ local function Build()
     cfg.modBoxes[i] = box
   end
 
-  local help = Label(cfg,
+  local help = Label(p,
     "Type the spell name exactly as in the spellbook.\n" ..
     "Special words: |cffffffff target|r, |cffffffff focus|r, |cffffffff menu|r.\n" ..
     "Thumb buttons and the wheel only cast while the mouse is over a frame,\n" ..
     "so they keep doing their normal job everywhere else.",
     "GameFontDisableSmall")
-  help:SetPoint("TOPLEFT", px, -326)
+  help:SetPoint("TOPLEFT", px, -354)
   help:SetJustifyH("LEFT"); help:SetWidth(350)
 
-  -- Options ---------------------------------------------------------------
-  local oy = -400
-  cfg.themeBtn = NewButton(cfg, 200)
-  cfg.themeBtn:SetPoint("TOPLEFT", px, oy)
-  cfg.themeBtn:SetScript("OnClick", function()
-    local idx = 1
-    for i, k in ipairs(JH.THEME_ORDER) do if k == E.theme then idx = i end end
-    E.theme = JH.THEME_ORDER[idx % #JH.THEME_ORDER + 1]
-    local th = JH.THEMES[E.theme]
-    cfg.w:SetText(th.w); cfg.h:SetText(th.h)   -- each theme suggests a bar size
-    cfg.themeBtn:SetText("Theme: " .. th.label)
-  end)
-  local thHint = Label(cfg, "(click to change, then Save)", "GameFontDisableSmall")
-  thHint:SetPoint("LEFT", cfg.themeBtn, "RIGHT", 8, 0)
+  local tips = NewCheck(p, "Show the spell list when hovering a frame",
+    function() return E.showBindTips end, function(v) E.showBindTips = v end)
+  tips:SetPoint("TOPLEFT", px - 4, -420)
+  local off = NewCheck(p, "Thumb buttons cast on my target when not over a frame",
+    function() return E.offFrameTarget end, function(v) E.offFrameTarget = v end)
+  off:SetPoint("TOPLEFT", px - 4, -444)
+  tinsert(cfg.refresh, tips); tinsert(cfg.refresh, off)
+end
 
-  local y2 = oy - 32
-  local lw = Label(cfg, "Width", "GameFontHighlightSmall"); lw:SetPoint("TOPLEFT", px, y2 - 4)
-  cfg.w = NewBox(cfg, 40); cfg.w:SetPoint("TOPLEFT", px + 42, y2)
-  local lh = Label(cfg, "Height", "GameFontHighlightSmall"); lh:SetPoint("TOPLEFT", px + 96, y2 - 4)
-  cfg.h = NewBox(cfg, 40); cfg.h:SetPoint("TOPLEFT", px + 140, y2)
-  local ls = Label(cfg, "Scale", "GameFontHighlightSmall"); ls:SetPoint("TOPLEFT", px + 194, y2 - 4)
-  cfg.s = NewBox(cfg, 40); cfg.s:SetPoint("TOPLEFT", px + 232, y2)
+---------------------------------------------------------------------------
+-- Page 2: look and layout
+---------------------------------------------------------------------------
+local function BuildLook(p)
+  local function custom() E.theme = "custom" end
+  local function add(w) tinsert(cfg.refresh, w); return w end
+  local lx, rx, y = 24, 370, -66
 
-  cfg.unlock = NewButton(cfg, 120)
-  cfg.unlock:SetPoint("TOPLEFT", px, y2 - 30)
+  -- Look -------------------------------------------------------------------
+  Label(p, "Look"):SetPoint("TOPLEFT", lx, y)
+
+  local themeOpts = {}
+  for _, k in ipairs(JH.THEME_ORDER) do themeOpts[#themeOpts + 1] = { k, JH.THEMES[k].label } end
+  local theme = add(NewCycle(p, 260, "Theme", themeOpts,
+    function() return E.theme end,
+    function(k)
+      local t = JH.THEMES[k]
+      E.theme = k
+      E.look.bar, E.look.name, E.look.tex, E.look.pct = t.bar, t.name, t.tex, t.pct
+      cfg.w:SetText(t.w); cfg.h:SetText(t.h)   -- each theme suggests a bar size
+    end))
+  theme:SetPoint("TOPLEFT", lx, y - 24)
+  local th = Label(p, "A theme sets everything below. Change any part afterwards.", "GameFontDisableSmall")
+  th:SetPoint("TOPLEFT", lx, y - 52)
+
+  local bar = add(NewCycle(p, 260, "Bar colour",
+    { { "health", "By health (green > red)" }, { "class", "Class colour" }, { "dark", "Dark" } },
+    function() return E.look.bar end, function(v) E.look.bar = v; custom() end))
+  bar:SetPoint("TOPLEFT", lx, y - 76)
+
+  local name = add(NewCycle(p, 260, "Name colour",
+    { { "white", "White" }, { "class", "Class colour" } },
+    function() return E.look.name end, function(v) E.look.name = v; custom() end))
+  name:SetPoint("TOPLEFT", lx, y - 104)
+
+  local tex = add(NewCycle(p, 260, "Bar texture",
+    { { "blizzard", "Classic" }, { "raid", "Raid frame" }, { "flat", "Flat" } },
+    function() return E.look.tex end, function(v) E.look.tex = v; custom() end))
+  tex:SetPoint("TOPLEFT", lx, y - 132)
+
+  local pct = add(NewCheck(p, "Show health %  (bars 30 or higher)",
+    function() return E.look.pct end, function(v) E.look.pct = v; custom(); RefreshLook() end))
+  pct:SetPoint("TOPLEFT", lx - 4, y - 162)
+  local hots = add(NewCheck(p, "Show my HoT icons on the bars",
+    function() return E.look.hots ~= false end, function(v) E.look.hots = v end))
+  hots:SetPoint("TOPLEFT", lx - 4, y - 186)
+
+  local y2 = y - 224
+  Label(p, "Bar size"):SetPoint("TOPLEFT", lx, y2)
+  local lw = Label(p, "Width", "GameFontHighlightSmall"); lw:SetPoint("TOPLEFT", lx, y2 - 28)
+  cfg.w = NewBox(p, 40); cfg.w:SetPoint("TOPLEFT", lx + 44, y2 - 24)
+  local lh = Label(p, "Height", "GameFontHighlightSmall"); lh:SetPoint("TOPLEFT", lx + 100, y2 - 28)
+  cfg.h = NewBox(p, 40); cfg.h:SetPoint("TOPLEFT", lx + 146, y2 - 24)
+  local ls = Label(p, "Scale", "GameFontHighlightSmall"); ls:SetPoint("TOPLEFT", lx + 202, y2 - 28)
+  cfg.s = NewBox(p, 40); cfg.s:SetPoint("TOPLEFT", lx + 240, y2 - 24)
+
+  local lf = Label(p, "Out of range: show at", "GameFontHighlightSmall"); lf:SetPoint("TOPLEFT", lx, y2 - 60)
+  cfg.fade = NewBox(p, 40); cfg.fade:SetPoint("TOPLEFT", lx + 146, y2 - 56)
+  local lf2 = Label(p, "%  (100 = never fade)", "GameFontHighlightSmall"); lf2:SetPoint("LEFT", cfg.fade, "RIGHT", 6, 0)
+
+  -- Layout -----------------------------------------------------------------
+  Label(p, "Layout"):SetPoint("TOPLEFT", rx, y)
+
+  local grow = add(NewCycle(p, 280, "Direction",
+    { { "down", "Columns (top to bottom)" }, { "right", "Rows (left to right)" } },
+    function() return E.layout.grow end, function(v) E.layout.grow = v end))
+  grow:SetPoint("TOPLEFT", rx, y - 24)
+
+  local sort = add(NewCycle(p, 280, "Sort by",
+    { { "group", "Raid group" }, { "role", "Role (tank, healer, dps)" }, { "name", "Name" } },
+    function() return E.layout.sort end, function(v) E.layout.sort = v end))
+  sort:SetPoint("TOPLEFT", rx, y - 52)
+
+  local lp = Label(p, "Bars per column / row", "GameFontHighlightSmall"); lp:SetPoint("TOPLEFT", rx, y - 88)
+  cfg.per = NewBox(p, 40); cfg.per:SetPoint("TOPLEFT", rx + 150, y - 84)
+  local lp2 = Label(p, "5 = one per group", "GameFontDisableSmall"); lp2:SetPoint("LEFT", cfg.per, "RIGHT", 8, 0)
+
+  local lsp = Label(p, "Space between bars", "GameFontHighlightSmall"); lsp:SetPoint("TOPLEFT", rx, y - 116)
+  cfg.sp = NewBox(p, 40); cfg.sp:SetPoint("TOPLEFT", rx + 150, y - 112)
+
+  local solo = add(NewCheck(p, "Show when I'm not in a group",
+    function() return E.layout.solo ~= false end, function(v) E.layout.solo = v end))
+  solo:SetPoint("TOPLEFT", rx - 4, y - 142)
+  local me = add(NewCheck(p, "Show myself in the party",
+    function() return E.layout.player ~= false end, function(v) E.layout.player = v end))
+  me:SetPoint("TOPLEFT", rx - 4, y - 166)
+
+  cfg.unlock = NewButton(p, 280)
+  cfg.unlock:SetPoint("TOPLEFT", rx, y - 204)
   cfg.unlock:SetScript("OnClick", function()
-    JH.db.locked = not JH.db.locked; JH.UpdateMover()
-    cfg.unlock:SetText(JH.db.locked and "Unlock frames" or "Lock frames")
+    JH.db.locked = not JH.db.locked; JH.UpdateMover(); RefreshLook()
   end)
+  local uh = Label(p, "Unlocked: drag the green bar to move, drag the corner\nhandle to resize, mouse wheel on either to scale.", "GameFontDisableSmall")
+  uh:SetPoint("TOPLEFT", rx, y - 232); uh:SetJustifyH("LEFT")
+end
 
-  cfg.tips = NewCheck(cfg, "Show the spell list when hovering a frame")
-  cfg.tips:SetPoint("TOPLEFT", px - 4, y2 - 58)
-  cfg.tips:SetScript("OnClick", function(self) E.showBindTips = self:GetChecked() and true or false end)
+---------------------------------------------------------------------------
+-- Window
+---------------------------------------------------------------------------
+local function Build()
+  cfg = CreateFrame("Frame", "FaithHealsConfig", UIParent, "BasicFrameTemplateWithInset")
+  cfg:SetSize(700, 600)
+  cfg:SetPoint("CENTER")
+  cfg:SetFrameStrata("DIALOG")
+  cfg:SetMovable(true); cfg:EnableMouse(true); cfg:RegisterForDrag("LeftButton")
+  cfg:SetClampedToScreen(true)
+  cfg:SetScript("OnDragStart", cfg.StartMoving)
+  cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
+  if cfg.TitleText then cfg.TitleText:SetText("FaithHeals") end
+  tinsert(UISpecialFrames, "FaithHealsConfig")
+  cfg.refresh = {}
 
-  cfg.offFrame = NewCheck(cfg, "Thumb buttons cast on my target when not over a frame")
-  cfg.offFrame:SetPoint("TOPLEFT", px - 4, y2 - 80)
-  cfg.offFrame:SetScript("OnClick", function(self) E.offFrameTarget = self:GetChecked() and true or false end)
+  cfg.tab1 = NewButton(cfg, 130, "Spells")
+  cfg.tab1:SetPoint("TOPLEFT", 14, -30)
+  cfg.tab1:SetScript("OnClick", function() ShowPage(1) end)
+  cfg.tab2 = NewButton(cfg, 130, "Look & layout")
+  cfg.tab2:SetPoint("LEFT", cfg.tab1, "RIGHT", 6, 0)
+  cfg.tab2:SetScript("OnClick", function() ShowPage(2) end)
+
+  cfg.pSpells = CreateFrame("Frame", nil, cfg); cfg.pSpells:SetAllPoints()
+  cfg.pLook   = CreateFrame("Frame", nil, cfg); cfg.pLook:SetAllPoints()
+  BuildSpells(cfg.pSpells)
+  BuildLook(cfg.pLook)
 
   local save = NewButton(cfg, 120, "Save & Apply")
   save:SetHeight(24); save:SetPoint("BOTTOMRIGHT", -16, 14)
@@ -296,10 +414,11 @@ local function Build()
   revert:SetHeight(24); revert:SetPoint("RIGHT", save, "LEFT", -8, 0)
   revert:SetScript("OnClick", LoadFromDB)
 
-  local note = Label(cfg, "Changes can't be applied during combat.", "GameFontDisableSmall")
+  local note = Label(cfg, "Nothing changes until Save & Apply. Not possible during combat.", "GameFontDisableSmall")
   note:SetPoint("BOTTOMLEFT", 18, 20)
 
   cfg:SetScript("OnShow", LoadFromDB)
+  ShowPage(1)
   cfg:Hide()
 end
 

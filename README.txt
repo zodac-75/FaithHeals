@@ -33,8 +33,15 @@ SPELLS (works like HealBot's Spells tab)
 
   Hover a frame to see what every button casts. Hold Shift/Ctrl/Alt to see that set.
 
+LOOK & LAYOUT (second tab in /fh)
+  Look:   theme, bar colour (by health / class / dark), name colour, bar texture,
+          health %, HoT icons, bar width / height / scale, how much out-of-range bars fade.
+  Layout: columns or rows, sort by raid group / role / name, bars per column or row,
+          space between bars, show when solo, show yourself in the party.
+  Nothing changes until you press Save & Apply.
+
 THEMES
-  Click the Theme button in /fh, then Save & Apply:
+  A theme is a preset for the Look settings. Click the Theme button, then Save & Apply:
     Classic HealBot - slim bars, green > yellow > red as health drops
     Class colours   - taller bars in class colour, with health %
     Slim class      - slim bars in class colour
@@ -51,5 +58,10 @@ MOVE AND RESIZE
 ON THE BARS
   Your own HoTs with timers, a purple border for a debuff you can dispel,
   a white border on your target, faded when out of range.
+
+PERFORMANCE
+  Each bar only listens to its own player, range changes come from the game itself
+  (with a light check twice a second as backup), and bursts of buff changes are
+  combined into one update. Nothing runs for hidden bars.
 
 Settings can't be changed in combat. Spell names must match the spellbook exactly.

@@ -41,6 +41,11 @@ JH.defaults = {
   width  = 100,
   height = 24,
   theme  = "healbot",
+  -- how the bars look (a theme is just a preset of these)
+  look   = { bar = "health", name = "white", tex = "blizzard", pct = false, hots = true },
+  -- how the bars are arranged
+  layout = { grow = "down", per = 5, sort = "group", spacing = 2, solo = true, player = true },
+  rangeAlpha = 0.4,
   pos    = { "TOPLEFT", "TOPLEFT", 40, -260 },
   locked = true,
   offFrameTarget = false,
@@ -89,9 +94,15 @@ local function InitDB()
     end
     db.clicks, db.keys = nil, nil
   end
+  if not db.look and db.theme and JH.THEMES and JH.THEMES[db.theme] then
+    local t = JH.THEMES[db.theme]
+    db.look = { bar = t.bar, name = t.name, tex = t.tex, pct = t.pct, hots = true }
+  end
   for k, v in pairs(JH.defaults) do
     if db[k] == nil then db[k] = deepcopy(v) end
   end
+  for k, v in pairs(JH.defaults.look) do if db.look[k] == nil then db.look[k] = v end end
+  for k, v in pairs(JH.defaults.layout) do if db.layout[k] == nil then db.layout[k] = v end end
   db.version = 2
   JH.db = db
 end
@@ -298,6 +309,7 @@ function JH.ApplyAll(quiet)
   header:SetAttribute("initialConfigFunction", BuildInitSnippet(attrs))
   for btn in pairs(JH.buttons) do JH.ApplyClicksTo(btn, attrs) end
   header:SetScale(JH.db.scale or 1)
+  JH.ApplyLayout()
   ApplyHoverKeys(combos)
   ApplyFallback(combos)
   JH.UpdateMover()
