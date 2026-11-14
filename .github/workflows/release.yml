@@ -1,0 +1,41 @@
+# Builds, checks and releases FaithHeals.
+#
+# On every push to main, tools/release.py looks at the first line of CHANGELOG.md
+# ("# FaithHeals 0.1.0-alpha"). If that version has no "FaithHeals-<version>" tag yet, the addon
+# is built, checked, packaged with the BigWigs packager, uploaded to CurseForge (project id in
+# FaithHeals/FaithHeals.toc) and released on GitHub with the same zip.
+# A version with "beta" or "alpha" in it becomes a beta/alpha file on CurseForge.
+#
+# Needs the repository secret CF_API_KEY (a CurseForge API token).
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # tags and GitHub releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Lua for the syntax check
+        run: sudo apt-get update -q && sudo apt-get install -y -q lua5.3
+
+      - name: Get the BigWigs packager
+        run: git clone --depth 1 --branch v2 https://github.com/BigWigsMods/packager "$RUNNER_TEMP/packager"
+
+      - name: Build, check and release a new version
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGER: ${{ runner.temp }}/packager/release.sh
+          LUAC: luac5.3
+        run: python3 tools/release.py
