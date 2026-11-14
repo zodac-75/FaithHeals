@@ -8,6 +8,7 @@ INSTALL
 
 COMMANDS
   /fh            open the Spells window
+  /fh test 20    show 20 test bars (any number 1-40), /fh test again to hide
   /fh unlock     move / resize the frames, /fh lock when done
   /fh scale 1.2  scale everything
   /fh reset      back to defaults
@@ -39,6 +40,12 @@ LOOK & LAYOUT (second tab in /fh)
   Layout: columns or rows, sort by raid group / role / name, bars per column or row,
           space between bars, show when solo, show yourself in the party.
   Nothing changes until you press Save & Apply.
+
+TEST BARS
+  Look & layout tab > "Test bars" (or /fh test 20) shows fake group members so the
+  look and layout can be set up without a party or raid. They show different health,
+  HoTs, a dead and an offline player, a dispel border and out-of-range fading.
+  They can't be clicked, and hide themselves when combat starts.
 
 THEMES
   A theme is a preset for the Look settings. Click the Theme button, then Save & Apply:

@@ -376,6 +376,13 @@ local function BuildLook(p)
   end)
   local uh = Label(p, "Unlocked: drag the green bar to move, drag the corner\nhandle to resize, mouse wheel on either to scale.", "GameFontDisableSmall")
   uh:SetPoint("TOPLEFT", rx, y - 232); uh:SetJustifyH("LEFT")
+
+  local test = add(NewCycle(p, 280, "Test bars",
+    { { 0, "Off" }, { 5, "5 (party)" }, { 10, "10" }, { 20, "20" }, { 40, "40 (full raid)" } },
+    function() return JH.testCount or 0 end, function(v) JH.SetTest(v) end))
+  test:SetPoint("TOPLEFT", rx, y - 276)
+  local thh = Label(p, "Fake group members for trying out look and layout.\nThey update when you press Save & Apply, and hide\nthemselves when combat starts.", "GameFontDisableSmall")
+  thh:SetPoint("TOPLEFT", rx, y - 304); thh:SetJustifyH("LEFT")
 end
 
 ---------------------------------------------------------------------------
@@ -426,6 +433,7 @@ function JH.RefreshConfig()
   if cfg and cfg:IsShown() and not cfg.w:HasFocus() and not cfg.h:HasFocus() and not cfg.s:HasFocus() then
     cfg.w:SetText(JH.db.width); cfg.h:SetText(JH.db.height); cfg.s:SetText(JH.db.scale)
   end
+  if cfg and cfg:IsShown() then RefreshLook() end
 end
 
 function JH.ToggleConfig()

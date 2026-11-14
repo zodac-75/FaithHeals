@@ -402,10 +402,12 @@ SlashCmdList.FAITHHEALS = function(msg)
     JH.db.locked = true; JH.UpdateMover(); JH.Print("Locked.")
   elseif cmd == "scale" and tonumber(rest) then
     JH.SetScale(tonumber(rest))
+  elseif cmd == "test" then
+    JH.SetTest(tonumber(rest) or (JH.testCount and 0 or 20))
   elseif cmd == "reset" then
     if InCombatLockdown() then return JH.Print("Not in combat.") end
     FaithHealsDB = nil; InitDB(); JH.PlaceHeader(); JH.ApplyAll()
   else
-    JH.Print("/fh - settings | /fh unlock | /fh lock | /fh scale 1.2 | /fh reset")
+    JH.Print("/fh - settings | /fh test 20 | /fh unlock | /fh lock | /fh scale 1.2 | /fh reset")
   end
 end

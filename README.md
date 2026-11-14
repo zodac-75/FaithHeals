@@ -27,6 +27,7 @@ Ships with a Restoration Druid setup, but works for any healer. See `README.txt`
 | Command | What it does |
 |---|---|
 | `/fh` | Open the Spells window |
+| `/fh test 20` | Show test bars to set up look and layout without a group |
 | `/fh unlock` / `/fh lock` | Move and resize the frames |
 | `/fh scale 1.2` | Scale everything |
 | `/fh reset` | Back to defaults |

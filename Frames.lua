@@ -328,6 +328,7 @@ end
 
 function JH.ApplyTheme()
   for b in pairs(JH.buttons) do JH.StyleButton(b) end
+  if JH.RefreshTest then JH.RefreshTest() end
 end
 
 ---------------------------------------------------------------------------
@@ -342,11 +343,9 @@ function JH.ShowTooltip(b)
 end
 
 ---------------------------------------------------------------------------
--- Unit button setup (called from the XML template's OnLoad)
+-- Bar visuals (shared by the real bars and the test bars)
 ---------------------------------------------------------------------------
-function FaithHeals_UnitOnLoad(self)
-  JH.buttons[self] = true
-
+function JH.BuildVisuals(self)
   local bg = self:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints()
   bg:SetColorTexture(0, 0, 0, 0.9)
@@ -394,6 +393,12 @@ function FaithHeals_UnitOnLoad(self)
   self.hl = self:CreateTexture(nil, "HIGHLIGHT")
   self.hl:SetAllPoints(); self.hl:SetColorTexture(1, 1, 1, 0.15)
 
+end
+
+function FaithHeals_UnitOnLoad(self)
+  JH.buttons[self] = true
+  JH.BuildVisuals(self)
+
   self:SetScript("OnAttributeChanged", function(s, attr, value)
     if attr == "unit" then SetUnit(s, value) end
   end)
@@ -430,6 +435,7 @@ function JH.SetButtonSize(w, h)
   for b in pairs(JH.buttons) do b:SetSize(JH.db.width, JH.db.height) end
   -- poke the header so it re-lays out its children
   JH.header:SetAttribute("unitsPerColumn", JH.header:GetAttribute("unitsPerColumn"))
+  if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
 
@@ -437,13 +443,16 @@ function JH.SetScale(s)
   if InCombatLockdown() then return end
   JH.db.scale = math.floor(math.max(0.5, math.min(2, s)) * 100 + 0.5) / 100
   JH.header:SetScale(JH.db.scale)
+  if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
 
 -- columns, rows currently on screen (used so the resize handle follows the mouse)
 local function CountLayout()
-  local n = 0
-  for b in pairs(JH.buttons) do if b:IsVisible() then n = n + 1 end end
+  local n = JH.testCount or 0
+  if n == 0 then
+    for b in pairs(JH.buttons) do if b:IsVisible() then n = n + 1 end end
+  end
   n = math.max(1, n)
   local per = math.max(1, JH.db.layout.per or 5)
   local along, across = math.min(n, per), math.ceil(n / per)
