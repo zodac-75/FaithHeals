@@ -14,6 +14,7 @@ COMMANDS
   /fh binds      list your bindings and what your own bar will do for each
   /fh clicks     print what every click on a bar does (to find binding problems)
   /fh heals      show what the game reports about incoming heals
+  /fh auras      show what the game reports about buffs/debuffs (icons)
   /fh unlock     move / resize the frames, /fh lock when done
   /fh scale 1.2  scale everything
   /fh reset      back to defaults

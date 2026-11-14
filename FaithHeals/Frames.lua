@@ -317,7 +317,8 @@ local function SetAuraIcon(ic, u, aura)
   end
   if not cdOk then
     local exp, d = aura.expirationTime, aura.duration
-    if exp and d and not IsSecret(exp) and not IsSecret(d) and d > 0 then
+    -- check for secret values BEFORE any test: even "if d then" fails on a secret in combat
+    if not IsSecret(exp) and not IsSecret(d) and type(exp) == "number" and type(d) == "number" and d > 0 then
       ic.cd:SetCooldown(exp - d, d)
     else
       ic.cd:Clear()
@@ -334,15 +335,17 @@ local function FillIcons(list, icons, max, u, skip)
   for i = 1, #list do
     if n >= max then break end
     local a = list[i]
-    local id = a and a.auraInstanceID
-    if a and not (skip and id and not IsSecret(id) and skip[id]) then
-      n = n + 1
-      SetAuraIcon(icons[n], u, a)
+    if type(a) == "table" then
+      local id = a.auraInstanceID
+      local skipIt = skip and not IsSecret(id) and id ~= nil and skip[id]
+      if not skipIt then
+        n = n + 1
+        SetAuraIcon(icons[n], u, a)
+      end
     end
   end
   return n
 end
-
 -- Is this one of your auras a HoT (or a short helpful effect like Ironbark)?
 -- Known HoT names first; else anything that lasts 60 seconds or less. In combat the
 -- name and duration can be secret: then the answer from before is reused (by aura
@@ -361,16 +364,19 @@ for _, n in ipairs({
 local hotCache = {}
 
 function JH.IsHot(a)
+  -- every value is checked with IsSecret BEFORE it is tested or used as a table key
   local id = a.auraInstanceID
-  local idOk = id and not IsSecret(id)
+  local idOk = not IsSecret(id) and id ~= nil
   if idOk and hotCache[id] ~= nil then return hotCache[id] end
   local res
   local n, d = a.name, a.duration
-  if n and not IsSecret(n) and HOT_NAMES[n] then
+  local nOk = not IsSecret(n) and type(n) == "string"
+  local dOk = not IsSecret(d) and type(d) == "number"
+  if nOk and HOT_NAMES[n] then
     res = true
-  elseif d ~= nil and not IsSecret(d) then
+  elseif dOk then
     res = d > 0 and d <= 60
-  elseif n and not IsSecret(n) then
+  elseif nOk then
     res = false            -- readable name, not a known HoT
   else
     return true            -- nothing readable: show it (don't cache)
@@ -378,6 +384,27 @@ function JH.IsHot(a)
   if idOk then hotCache[id] = res end
   return res
 end
+
+-- Auras on a unit for a filter. C_UnitAuras.GetUnitAuras first; if that fails or comes back
+-- empty (it can in combat), ask aura by aura with GetAuraDataByIndex.
+local function GetAuras(u, filter, max)
+  local out
+  if C_UnitAuras.GetUnitAuras then
+    local ok, list = pcall(C_UnitAuras.GetUnitAuras, u, filter, max)
+    if ok and type(list) == "table" then out = list end
+  end
+  if (not out or #out == 0) and C_UnitAuras.GetAuraDataByIndex then
+    local list = {}
+    for i = 1, max do
+      local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, u, i, filter)
+      if not ok or type(a) ~= "table" then break end
+      list[#list + 1] = a
+    end
+    if #list > 0 then out = list end
+  end
+  return out or {}
+end
+JH.GetAuras = GetAuras
 
 local function Count(v, default)
   v = tonumber(v)
@@ -389,8 +416,7 @@ local function UpdateAuras(b)
   local u = b.unit
   local look = Look()
   local nh, nb, nd = 0, 0, 0
-  if u and UnitExists(u) and C_UnitAuras and C_UnitAuras.GetUnitAuras then
-    local Get = C_UnitAuras.GetUnitAuras
+  if u and UnitExists(u) and C_UnitAuras and (C_UnitAuras.GetUnitAuras or C_UnitAuras.GetAuraDataByIndex) then
     local hotMax = look.hots ~= false and Count(look.hotMax, MAX_HOTS) or 0
     local buffMax = look.showBuffs and Count(look.buffMax, 3) or 0
     local debuffMax = look.showDebuffs and Count(look.debuffMax, 3) or 0
@@ -399,34 +425,29 @@ local function UpdateAuras(b)
     -- count as buffs and only show when Buffs is on
     local hotIDs = {}
     if hotMax > 0 or buffMax > 0 then
-      local ok, list = pcall(Get, u, "HELPFUL|PLAYER", 40)
-      if ok and type(list) == "table" then
-        local hots = {}
-        for _, a in ipairs(list) do
-          if JH.IsHot(a) then
-            hots[#hots + 1] = a
-            local id = a.auraInstanceID
-            if id and not IsSecret(id) then hotIDs[id] = true end
-          end
+      local list = GetAuras(u, "HELPFUL|PLAYER", 40)
+      local hots = {}
+      for _, a in ipairs(list) do
+        if JH.IsHot(a) then
+          hots[#hots + 1] = a
+          local id = a.auraInstanceID
+          if not IsSecret(id) and id ~= nil then hotIDs[id] = true end
         end
-        if hotMax > 0 then nh = FillIcons(hots, b.icons, hotMax, u) end
       end
+      if hotMax > 0 then nh = FillIcons(hots, b.icons, hotMax, u) end
     end
     -- buffs: everything helpful that isn't one of your HoTs (yours and other players')
     if buffMax > 0 then
-      local ok, list = pcall(Get, u, "HELPFUL", 40)
-      if ok then nb = FillIcons(list, b.buffIcons, buffMax, u, hotIDs) end
+      nb = FillIcons(GetAuras(u, "HELPFUL", 40), b.buffIcons, buffMax, u, hotIDs)
     end
     -- debuffs: all of them, or only the ones you can dispel
     if debuffMax > 0 then
       local filter = look.debuffs == "all" and "HARMFUL" or "HARMFUL|RAID_PLAYER_DISPELLABLE"
-      local ok, list = pcall(Get, u, filter, debuffMax)
-      if ok then nd = FillIcons(list, b.debuffIcons, debuffMax, u) end
+      nd = FillIcons(GetAuras(u, filter, debuffMax), b.debuffIcons, debuffMax, u)
     end
     -- debuff you can dispel -> coloured border
     if look.dispel ~= false then
-      local okD, dl = pcall(Get, u, "HARMFUL|RAID_PLAYER_DISPELLABLE", 1)
-      b.dispel:SetShown(okD and type(dl) == "table" and #dl > 0)
+      b.dispel:SetShown(#GetAuras(u, "HARMFUL|RAID_PLAYER_DISPELLABLE", 1) > 0)
     else
       b.dispel:Hide()
     end
@@ -1076,6 +1097,33 @@ function JH.HealsReport()
     or "Stopped watching heal events.")
 end
 
+-- /fh auras: what the game gives us about auras (to find why icons don't show in combat)
+function JH.AurasReport()
+  local P = JH.Print
+  local u = (UnitExists("target") and UnitIsFriend("player", "target") and UnitInParty("target")) and "target" or "player"
+  local function S(v) if IsSecret(v) then return "secret" end return tostring(v) end
+  P(("--- auras on %s [%s], in combat: %s ---"):format(u, tostring(UnitName(u)), tostring(InCombatLockdown())))
+  P(("GetUnitAuras: %s, GetAuraDataByIndex: %s"):format(
+    tostring(C_UnitAuras and C_UnitAuras.GetUnitAuras ~= nil), tostring(C_UnitAuras and C_UnitAuras.GetAuraDataByIndex ~= nil)))
+  for _, f in ipairs({ "HELPFUL|PLAYER", "HELPFUL", "HARMFUL" }) do
+    local direct = "-"
+    if C_UnitAuras and C_UnitAuras.GetUnitAuras then
+      local ok, list = pcall(C_UnitAuras.GetUnitAuras, u, f, 40)
+      direct = ok and (type(list) == "table" and tostring(#list) or type(list)) or ("error: " .. tostring(list))
+    end
+    local list = GetAuras(u, f, 40)
+    P(("%s: GetUnitAuras=%s, used=%d"):format(f, direct, #list))
+    local a = list[1]
+    if type(a) == "table" then
+      local okH, hot = pcall(JH.IsHot, a)
+      P(("  first: name=%s id=%s duration=%s icon=%s -> HoT=%s"):format(S(a.name), S(a.auraInstanceID),
+        S(a.duration), IsSecret(a.icon) and "secret" or (a.icon and "yes" or "no"), okH and tostring(hot) or ("error: " .. tostring(hot))))
+    end
+  end
+  P("icon error: " .. tostring(JH.auraError or "none"))
+  P("Run it once out of combat and once in combat (e.g. on a training dummy) and compare.")
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -1104,7 +1152,13 @@ ev:SetScript("OnUpdate", function(_, dt)
     if next(auraDirty) then
       for b in pairs(auraDirty) do
         auraDirty[b] = nil
-        if b:IsVisible() then UpdateAuras(b) end
+        if b:IsVisible() then
+          local ok, err = pcall(UpdateAuras, b)
+          if not ok and JH.auraError ~= tostring(err) then
+            JH.auraError = tostring(err)
+            JH.lastError = "updating icons: " .. JH.auraError
+          end
+        end
       end
     end
   end

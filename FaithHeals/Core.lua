@@ -690,6 +690,8 @@ SlashCmdList.FAITHHEALS = function(msg)
     return JH.Debug()
   elseif cmd == "binds" then
     return JH.Safe("listing bindings", JH.DebugBinds)
+  elseif cmd == "auras" then
+    return JH.Safe("checking auras", JH.AurasReport)
   elseif cmd == "heals" then
     JH.debugHeals = not JH.debugHeals
     return JH.Safe("checking incoming heals", JH.HealsReport)
@@ -719,6 +721,6 @@ SlashCmdList.FAITHHEALS = function(msg)
     if InCombatLockdown() then return JH.Print("Not in combat.") end
     FaithHealsDB = nil; InitDB(); JH.PlaceHeader(); JH.ApplyAll()
   else
-    JH.Print("/fh - settings | /fh debug | /fh binds | /fh clicks | /fh heals | /fh minimap | /fh test 20 | /fh unlock | /fh lock | /fh scale 1.2 | /fh reset")
+    JH.Print("/fh - settings | /fh debug | /fh binds | /fh clicks | /fh heals | /fh auras | /fh minimap | /fh test 20 | /fh unlock | /fh lock | /fh scale 1.2 | /fh reset")
   end
 end
