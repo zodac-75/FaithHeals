@@ -29,6 +29,8 @@ themes, layout options and test bars. README.md has the overview.
 - **Releases**: every release bumps the first line of `CHANGELOG.md` ("# FaithHeals 0.1.1") and
   adds the notes under it. Pushing to `main` then releases it (see below). Only the newest
   section goes to CurseForge and GitHub.
+- **Test builds on his NAS**: every test build also goes to `Z:\FaithHeals\Test\FaithHeals-<next version>-testN.zip`
+  (e.g. `0.3.2-beta-test1`, `build.build(out, ver)` in tools/build.py); `Releases\` is only for real releases.
 - **Release zips on his NAS** (when the PC is linked and `Z:\` is connected): after each release put
   `FaithHeals-<version>.zip` (same folders as the CurseForge package; `python3 tools/build.py --zip DIR`)
   in `Z:\FaithHeals\Releases\`. Also keep `Z:\FaithHeals\FaithHeals\` as the latest unpacked addon.
