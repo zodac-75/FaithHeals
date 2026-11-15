@@ -993,7 +993,7 @@ local function CreateGrip()
   end)
   g:SetScript("OnMouseUp", function(self)
     self:SetScript("OnUpdate", nil)
-    if self.drag then self.drag = nil; JH.ApplyAll(true) end
+    if self.drag then self.drag = nil; JH.ApplyAll(true) end  -- ApplyAll waits for combat to end
   end)
   g:SetScript("OnMouseWheel", function(_, delta) JH.SetScale((JH.db.scale or 1) + delta * 0.05) end)
   g:SetScript("OnEnter", function(self)
@@ -1031,11 +1031,32 @@ function JH.CreateHeader()
   fs:SetPoint("CENTER"); fs:SetText("FaithHeals - drag / wheel")
   mover:EnableMouseWheel(true)
   mover:SetScript("OnMouseWheel", function(_, delta) JH.SetScale((JH.db.scale or 1) + delta * 0.05) end)
-  mover:SetScript("OnDragStart", function(s) if not InCombatLockdown() then s:StartMoving() end end)
-  mover:SetScript("OnDragStop", function(s)
+  -- The bars hang on the mover, so it is protected in combat: StopMovingOrSizing there is
+  -- blocked. A drag still going when combat starts is finished on PLAYER_REGEN_DISABLED
+  -- (just before the lockdown), and a mouse-up in combat then does nothing.
+  local function StopMove(s)
+    if not s.moving then return end
+    s.moving = false
     s:StopMovingOrSizing()
     local p, _, rp, x, y = s:GetPoint()
     JH.db.pos = { p, rp, x, y }
+  end
+  mover:SetScript("OnDragStart", function(s)
+    if InCombatLockdown() then return end
+    s.moving = true
+    s:StartMoving()
+  end)
+  mover:SetScript("OnDragStop", function(s)
+    if InCombatLockdown() then return end
+    StopMove(s)
+  end)
+  mover:RegisterEvent("PLAYER_REGEN_DISABLED")
+  mover:SetScript("OnEvent", function(s)
+    StopMove(s)
+    if JH.grip and JH.grip.drag then  -- a resize still going: stop it too
+      JH.grip:SetScript("OnUpdate", nil)
+      JH.grip.drag = nil
+    end
   end)
   JH.mover = mover
   JH.PlaceHeader()
