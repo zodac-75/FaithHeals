@@ -73,6 +73,11 @@ local function Fill(b, d)
   b.marker:SetShown(mark and true or false)
   b.markerShown = mark and true or false
 
+  local healer = d.role == "HEALER" and look.healerIcon ~= false
+  if healer then JH.SetHealerTexture(b.role) end
+  b.role:SetShown(healer)
+  b.roleShown = healer
+
   b.hp:SetMinMaxValues(0, 1)
   if d.state then
     b.hp:SetValue(0); b.status:SetText(d.state); b.pct:SetText("")
@@ -144,33 +149,69 @@ function JH.RefreshTest()
   local right = (L.grow == "right")
   local data = MakeData(n)
 
+  -- tanks on top (like the real bars): their own block with "Main tank" / "Off tank"
+  local tanks, rest = {}, {}
+  if L.tanksTop ~= false then
+    for _, d in ipairs(data) do
+      if d.role == "TANK" then tanks[#tanks + 1] = d else rest[#rest + 1] = d end
+    end
+  else
+    rest = data
+  end
+  local LH = JH.TANK_LABEL_H or 12
+  local nT = #tanks
+  local tankH = 0
+  if nT > 0 then
+    tankH = right and (LH + h + sp) or (nT * (LH + h + sp))
+  end
+
   container:SetScale(db.scale or 1)
-  for i = 1, n do
+  local function Bar(i)
     local b = frames[i]
     if not b then
       b = CreateFrame("Frame", nil, container)
       JH.BuildVisuals(b)
       frames[i] = b
     end
-    local along, across = (i - 1) % per, math.floor((i - 1) / per)
     b:ClearAllPoints()
     b:SetSize(w, h)
+    return b
+  end
+  for i, d in ipairs(tanks) do
+    local b = Bar(i)
     if right then
-      b:SetPoint("TOPLEFT", along * (w + sp), -across * (h + sp + 1))
+      b:SetPoint("TOPLEFT", (i - 1) * (w + sp), -LH)
     else
-      b:SetPoint("TOPLEFT", across * (w + sp + 1), -along * (h + sp))
+      b:SetPoint("TOPLEFT", 0, -LH - (i - 1) * (h + sp + LH))
     end
     JH.StyleButton(b)
-    Fill(b, data[i])
+    Fill(b, d)
+    b.tankLabel:SetText(i == 1 and "Main tank" or "Off tank")
+    b.tankLabel:Show()
+    b:Show()
+  end
+  for k, d in ipairs(rest) do
+    local b = Bar(nT + k)
+    local along, across = (k - 1) % per, math.floor((k - 1) / per)
+    if right then
+      b:SetPoint("TOPLEFT", along * (w + sp), -tankH - across * (h + sp + 1))
+    else
+      b:SetPoint("TOPLEFT", across * (w + sp + 1), -tankH - along * (h + sp))
+    end
+    JH.StyleButton(b)
+    Fill(b, d)
+    b.tankLabel:Hide()
     b:Show()
   end
   for i = n + 1, #frames do frames[i]:Hide() end
 
-  local along, across = math.min(n, per), math.ceil(n / per)
+  local m = math.max(1, #rest)
+  local along, across = math.min(m, per), math.ceil(m / per)
+  local tw = right and (nT * (w + sp) - sp) or w
   if right then
-    container:SetSize(along * (w + sp) - sp, across * (h + sp + 1) - sp - 1)
+    container:SetSize(math.max(tw, along * (w + sp) - sp), tankH + across * (h + sp + 1) - sp - 1)
   else
-    container:SetSize(across * (w + sp + 1) - sp - 1, along * (h + sp) - sp)
+    container:SetSize(across * (w + sp + 1) - sp - 1, tankH + along * (h + sp) - sp)
   end
 end
 

@@ -50,13 +50,14 @@ JH.defaults = {
              -- icon size per kind (0.5 - 2 = 50% - 200%)
              hotSize = 1, buffSize = 1, debuffSize = 1,
              -- text colours (name: white/class/yellow/grey/black, pctColor: white/name/health/yellow)
-             pctColor = "white", shadow = true,
+             pctColor = "white", shadow = true, healerIcon = true,
              -- icons on the bars, one toggle each (on every bar in the group, yours too):
              -- hots / showBuffs / showDebuffs, how many (1-4), debuffs = "all" or "dispel"
              hotMax = 4, showBuffs = false, buffMax = 3,
              showDebuffs = false, debuffs = "all", debuffMax = 3, dispel = true },
   -- how the bars are arranged
-  layout = { grow = "down", sort = "group", spacing = 2, solo = true, player = true },
+  layout = { grow = "down", sort = "group", spacing = 2, solo = true, player = true,
+             tanksTop = true },  -- tanks in their own group on top, with Main tank / Off tank
   rangeAlpha = 0.4,
   pos    = { "TOPLEFT", "TOPLEFT", 40, -260 },
   locked = true,

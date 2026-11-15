@@ -598,6 +598,9 @@ local function BuildLook(p)
   local me = add(NewCheck(p, "Show myself in the party",
     function() return E.layout.player ~= false end, function(v) E.layout.player = v end))
   me:SetPoint("TOPLEFT", rx - 4, y - 142)
+  local tanks = add(NewCheck(p, "Tanks on top (Main tank / Off tank)",
+    function() return E.layout.tanksTop ~= false end, function(v) E.layout.tanksTop = v end))
+  tanks:SetPoint("TOPLEFT", rx - 4, y - 166)
 
   cfg.unlock = NewButton(p, 280)
   cfg.unlock:SetPoint("TOPLEFT", rx, y - 204)
@@ -683,11 +686,14 @@ local function BuildBars(p)
   add(NewCheck(p, "Show raid markers (skull, star ...)",
     function() return E.look.marker ~= false end, function(v) E.look.marker = v end))
     :SetPoint("TOPLEFT", rx - 4, y - 82)
+  add(NewCheck(p, "Show a healer icon on healers",
+    function() return E.look.healerIcon ~= false end, function(v) E.look.healerIcon = v end))
+    :SetPoint("TOPLEFT", rx - 4, y - 106)
 
   local bh = Label(p,
     "Bar colour (health / class / dark), texture and incoming\n" ..
     "heals are on the Look & layout tab.", "GameFontDisableSmall")
-  bh:SetPoint("TOPLEFT", rx, y - 116); bh:SetJustifyH("LEFT")
+  bh:SetPoint("TOPLEFT", rx, y - 140); bh:SetJustifyH("LEFT")
 
   -- Icons on the bars ------------------------------------------------------
   local y2 = y - 276

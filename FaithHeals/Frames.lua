@@ -30,6 +30,7 @@ JH.THEME_ORDER = { "healbot", "class", "slim", "dark" }
 local DEFAULT_LOOK = { bar = "health", name = "white", tex = "blizzard", pct = false, hots = true, inc = true,
                        font = "game", fontSize = 0, outline = "OUTLINE", nameLen = 0, nameAlign = "center",
                        bg = "auto", fill = "h", hotSize = 1, buffSize = 1, debuffSize = 1, marker = true, pctColor = "white", shadow = true,
+                       healerIcon = true,
                        hotMax = 4, showBuffs = false, buffMax = 3,
                        showDebuffs = false, debuffs = "all", debuffMax = 3, dispel = true }
 local function Look()
@@ -258,6 +259,12 @@ local function PlaceText(b)
   local bstep = (b.buffSize or b.iconSize or 10) + 1
   local dstep = (b.debuffSize or b.iconSize or 10) + 1
   local ms = b.markerShown and ((b.markerSize or 10) + 1) or 0
+  -- healer icon right after the raid marker; both count as "left side" space
+  if b.role then
+    b.role:ClearAllPoints()
+    if b.slim then b.role:SetPoint("LEFT", 2 + ms, 0) else b.role:SetPoint("TOPLEFT", 2 + ms, -2) end
+    if b.roleShown then ms = ms + (b.markerSize or 10) + 1 end
+  end
   local nh, nb, nd = b.nHots or 0, b.nBuffs or 0, b.nDebuffs or 0
   b.name:ClearAllPoints()
   if b.slim then
@@ -290,6 +297,7 @@ JH.PlaceText = PlaceText
 -- Re-place only when what is showing changed (aura updates come often)
 local function PlaceIcons(b)
   local key = (b.nHots or 0) * 100 + (b.nBuffs or 0) * 10 + (b.nDebuffs or 0) + (b.markerShown and 1000 or 0)
+              + (b.roleShown and 2000 or 0)
   if b.placedKey == key then return end
   b.placedKey = key
   PlaceText(b)
@@ -305,6 +313,34 @@ local function UpdateMarker(b)
   if show then SetRaidTargetIconTexture(m, idx) end
   m:SetShown(show)
   b.markerShown = show
+  PlaceIcons(b)
+end
+
+-- Small healer icon (role chosen in the group), when in a group. Toggle: look.healerIcon.
+local function SetHealerTexture(t)
+  if t.jhSet then return end
+  t.jhSet = true
+  if t.SetAtlas and pcall(t.SetAtlas, t, "roleicon-tiny-healer") then return end
+  t:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES")
+  if GetTexCoordsForRoleSmallCircle then
+    pcall(function() t:SetTexCoord(GetTexCoordsForRoleSmallCircle("HEALER")) end)
+  else
+    t:SetTexCoord(20 / 64, 39 / 64, 1 / 64, 20 / 64)
+  end
+end
+JH.SetHealerTexture = SetHealerTexture
+
+local function UpdateRole(b)
+  local r = b.role
+  if not r then return end
+  local show = false
+  if Look().healerIcon ~= false and b.unit and IsInGroup() and UnitGroupRolesAssigned then
+    local ok, role = pcall(UnitGroupRolesAssigned, b.unit)
+    show = ok and not IsSecret(role) and role == "HEALER"
+  end
+  if show then SetHealerTexture(r) end
+  r:SetShown(show)
+  b.roleShown = show
   PlaceIcons(b)
 end
 
@@ -495,7 +531,7 @@ end
 
 function JH.UpdateButton(b)
   if not b.unit or not UnitExists(b.unit) then return end
-  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b); UpdateRange(b); UpdateMarker(b)
+  UpdateName(b); UpdateHealth(b); UpdateAuras(b); UpdateTarget(b); UpdateRange(b); UpdateMarker(b); UpdateRole(b)
 end
 JH.UpdateMarker = UpdateMarker
 
@@ -586,6 +622,7 @@ function JH.LayoutButton(b)
   b.pctWidth = math.floor(math.max(6, fs - 1) * 2.4 + 2) -- room for "100%"
 
   b.markerSize = math.max(8, math.min(fs + 2, h - 4))
+  if b.role then b.role:SetSize(b.markerSize, b.markerSize) end
   if b.marker then
     b.marker:SetSize(b.markerSize, b.markerSize); b.marker:ClearAllPoints()
     if tall then b.marker:SetPoint("TOPLEFT", 2, -2) else b.marker:SetPoint("LEFT", 2, 0) end
@@ -718,6 +755,18 @@ function JH.BuildVisuals(self)
   marker:Hide()
   self.marker = marker
 
+  local role = text:CreateTexture(nil, "OVERLAY")
+  role:SetSize(10, 10); role:SetPoint("LEFT", 2, 0)
+  role:Hide()
+  self.role = role
+
+  -- "Main tank" / "Off tank" just above the bar (only on bars in the tank group)
+  local tl = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  tl:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 1, 1)
+  tl:SetFont((GameFontNormalSmall and GameFontNormalSmall:GetFont()) or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+  tl:Hide()
+  self.tankLabel = tl
+
   local name = text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   name:SetPoint("LEFT", 3, 0); name:SetPoint("RIGHT", -3, 0)
   name:SetWordWrap(false)
@@ -782,6 +831,7 @@ function FaithHeals_UnitOnLoad(self)
 
   self:SetScript("OnAttributeChanged", function(s, attr, value)
     if attr == "unit" then
+      if JH.tankHeader and s:GetParent() == JH.tankHeader then JH.tankDirty = true end
       local okU, errU = pcall(SetUnit, s, value)
       if not okU then BarError("showing " .. tostring(value), errU) end
     end
@@ -880,8 +930,9 @@ function JH.SetButtonSize(w, h)
   s.w = math.floor(math.max(30, math.min(300, w)) + 0.5)
   s.h = math.floor(math.max(12, math.min(150, h)) + 0.5)
   for b in pairs(JH.buttons) do b:SetSize(s.w, s.h) end
-  local hdr = JH.ActiveHeader()
-  hdr:SetAttribute("unitsPerColumn", hdr:GetAttribute("unitsPerColumn")) -- re-layout
+  for _, hdr in ipairs({ JH.ActiveHeader(), JH.tankHeader }) do
+    hdr:SetAttribute("unitsPerColumn", hdr:GetAttribute("unitsPerColumn")) -- re-layout
+  end
   if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
@@ -994,7 +1045,13 @@ function JH.CreateHeader()
   JH.raidHeader:SetAttribute("showParty", false)
   JH.raidHeader:SetAttribute("showSolo", false)
   JH.raidHeader:SetAttribute("showPlayer", true)
-  JH.headers = { JH.partyHeader, JH.raidHeader }
+  -- Tanks on top: everyone who chose the tank role, or is Main Tank / Main Assist in the
+  -- raid. Party and raid. The other headers leave players with the tank role out.
+  JH.tankHeader = NewHeader("FaithHealsTanks", 5)
+  JH.tankHeader:SetAttribute("showPlayer", true)
+  JH.tankHeader:SetAttribute("minWidth", 0.1)   -- no tanks: takes no space
+  JH.tankHeader:SetAttribute("minHeight", 0.1)
+  JH.headers = { JH.partyHeader, JH.raidHeader, JH.tankHeader }
   JH.grip = CreateGrip()
   JH.AnchorGrip(JH.partyHeader)
 end
@@ -1034,6 +1091,85 @@ local function Sorting(h, sort, raid)
   end
 end
 
+-- Space above each tank bar for its "Main tank" / "Off tank" label
+local TANK_LABEL_H = 12
+JH.TANK_LABEL_H = TANK_LABEL_H
+
+-- Every group and class, so "strict" filtering only leaves out by role
+local function AllGroupsAndClasses()
+  local classes = CLASS_SORT_ORDER or { "WARRIOR", "DEATHKNIGHT", "PALADIN", "MONK", "PRIEST", "SHAMAN",
+    "DRUID", "ROGUE", "MAGE", "WARLOCK", "HUNTER", "DEMONHUNTER", "EVOKER" }
+  return "1,2,3,4,5,6,7,8," .. table.concat(classes, ",")
+end
+
+local function SetupTanks(on, sp, grow)
+  local t = JH.tankHeader
+  t:SetAttribute("showSolo", on)
+  t:SetAttribute("showParty", on)
+  t:SetAttribute("showRaid", on)
+  t:SetAttribute("roleFilter", "MAINTANK,MAINASSIST,TANK")
+  t:SetAttribute("sortMethod", "INDEX")
+  t:SetAttribute("columnSpacing", sp + 1)
+  t:SetAttribute("maxColumns", 1)
+  if grow == "right" then
+    t:SetAttribute("xOffset", sp); t:SetAttribute("yOffset", 0)
+    t:SetAttribute("columnAnchorPoint", "TOP"); t:SetAttribute("point", "LEFT")
+  else
+    t:SetAttribute("xOffset", 0); t:SetAttribute("yOffset", -(sp + TANK_LABEL_H))
+    t:SetAttribute("columnAnchorPoint", "LEFT"); t:SetAttribute("point", "TOP")
+  end
+  t:SetAttribute("unitsPerColumn", 5)
+  t:ClearAllPoints()
+  t:SetPoint("TOPLEFT", JH.mover, "BOTTOMLEFT", 0, -2 - TANK_LABEL_H)
+
+  local filter = on and AllGroupsAndClasses() or "1,2,3,4,5,6,7,8"
+  for _, h in ipairs({ JH.partyHeader, JH.raidHeader }) do
+    h:SetAttribute("strictFiltering", on and true or nil)
+    h:SetAttribute("roleFilter", on and "HEALER,DAMAGER,NONE" or nil)
+    h:SetAttribute("groupFilter", filter)
+    h:ClearAllPoints()
+    if on then
+      h:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, -sp)
+    else
+      h:SetPoint("TOPLEFT", JH.mover, "BOTTOMLEFT", 0, -2)
+    end
+  end
+  JH.tankDirty = true
+end
+
+-- "Main tank" / "Off tank" over the bars in the tank group. Main Tank / Main Assist
+-- set by the raid leader win; otherwise the first tank is the main tank.
+function JH.UpdateTankLabels()
+  JH.tankDirty = false
+  local on = JH.db and JH.db.layout.tanksTop ~= false
+  local t = JH.tankHeader
+  for b in pairs(JH.buttons) do
+    if b.tankLabel and b:GetParent() ~= t then b.tankLabel:Hide() end
+  end
+  if not t then return end
+  local shown, hasMT = {}, false
+  for i = 1, 5 do
+    local b = t:GetAttribute("child" .. i)
+    if b and b.tankLabel then
+      if on and b.unit and b:IsShown() then
+        shown[#shown + 1] = b
+        if GetPartyAssignment and GetPartyAssignment("MAINTANK", b.unit) then hasMT = true end
+      else
+        b.tankLabel:Hide()
+      end
+    end
+  end
+  for i, b in ipairs(shown) do
+    local text
+    if GetPartyAssignment and GetPartyAssignment("MAINTANK", b.unit) then text = "Main tank"
+    elseif GetPartyAssignment and GetPartyAssignment("MAINASSIST", b.unit) then text = "Off tank"
+    elseif i == 1 and not hasMT then text = "Main tank"
+    else text = "Off tank" end
+    b.tankLabel:SetText(text)
+    b.tankLabel:Show()
+  end
+end
+
 -- Arrange the bars for the current group size. Out of combat only (ApplyAll waits).
 function JH.ApplyLayout()
   if InCombatLockdown() then return end
@@ -1047,8 +1183,8 @@ function JH.ApplyLayout()
   local p, r = JH.partyHeader, JH.raidHeader
   p:SetAttribute("showSolo", L.solo ~= false)
   p:SetAttribute("showPlayer", L.player ~= false)
-  p:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
-  r:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  SetupTanks(L.tanksTop ~= false, sp, L.grow)
+  JH.tankHeader:SetAttribute("showPlayer", L.player ~= false)
   Sorting(p, L.sort, false)
   Sorting(r, L.sort, true)
   Arrange(p, per, cols, sp, L.grow)
@@ -1129,6 +1265,7 @@ ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("RAID_TARGET_UPDATE")
+pcall(ev.RegisterEvent, ev, "PLAYER_ROLES_ASSIGNED")
 ev:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_TARGET_CHANGED" then
     for b in pairs(JH.buttons) do if b:IsVisible() then UpdateTarget(b) end end
@@ -1139,8 +1276,9 @@ ev:SetScript("OnEvent", function(_, event)
     if JH.headers and JH.active and not JH.testCount and JH.GroupLayout() ~= JH.active then
       JH.Safe("switching layout", JH.ApplyAll, true)
     end
-    -- the same "raid3" can now be a different person
+    -- the same "raid3" can now be a different person (or have a new role)
     for b in pairs(JH.buttons) do if b:IsVisible() then JH.UpdateButton(b) end end
+    JH.tankDirty = true
   end
 end)
 
@@ -1162,6 +1300,7 @@ ev:SetScript("OnUpdate", function(_, dt)
       end
     end
   end
+  if JH.tankDirty then pcall(JH.UpdateTankLabels) end
   rangeT = rangeT + dt
   if rangeT >= 0.5 then
     rangeT = 0
