@@ -10,6 +10,7 @@ themes, layout options and test bars. README.md has the overview.
   lives, the workflow and **the current state**; `Z:\FaithHeals\Claude\Starta-ny-session.txt` is the
   text he pastes into a new chat. **Update the "Läge just nu" section there after every change, test
   and release.**
+- In the files for Jennie he is called **Robban** (his nickname), not zodac.
 - **Jennie's suggestions**: she writes them in `Z:\FaithHeals\Jennie\TIll Claude.txt` (Claude reads
   it and may add to it, but never removes her text); Claude answers in `Från Claude.txt` (only Claude writes there) (newest on top, Swedish, a status per item) and asks him before
   building anything. Details in the handover file.
