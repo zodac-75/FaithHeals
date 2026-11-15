@@ -104,6 +104,9 @@ BigWigs packager (branch v2, `-g 1.60.1`), uploads it to CurseForge (project 180
   The plain secure `type = "target"` did nothing in Forever. Don't change it back.
 - **HoT icons** = your own auras filtered by `JH.IsHot` (known HoT names, or 60 s or less, cached per
   auraInstanceID because names/durations can be secret in combat). Everything else is a buff.
+- **Group header attributes**: every `SetAttribute` re-sorts the header at once. Set `groupingOrder`
+  BEFORE `groupBy` (Blizzard errors on a nil groupingOrder, SecureGroupHeaders.lua:467) and clear
+  `groupBy` before `groupingOrder` (see `Sorting` in Frames.lua).
 - **Settings migrations**: `db.version` in `InitDB` (Core.lua). Bump it and migrate when a setting
   changes shape. Every `db.look` key must be in both `JH.defaults.look` and `DEFAULT_LOOK` (Frames.lua).
 - **Debug commands**: `/fh debug`, `/fh binds`, `/fh clicks` (what each click does, which unit, the
