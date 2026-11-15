@@ -265,6 +265,11 @@ local function PlaceText(b)
     if b.slim then b.role:SetPoint("LEFT", 2 + ms, 0) else b.role:SetPoint("TOPLEFT", 2 + ms, -2) end
     if b.roleShown then ms = ms + (b.markerSize or 10) + 1 end
   end
+  if b.tankTag then
+    b.tankTag:ClearAllPoints()
+    if b.slim then b.tankTag:SetPoint("LEFT", 3 + ms, 0) else b.tankTag:SetPoint("TOPLEFT", 3 + ms, -2) end
+    if b.tagShown then ms = ms + math.ceil(b.tankTag:GetStringWidth() or 12) + 3 end
+  end
   local nh, nb, nd = b.nHots or 0, b.nBuffs or 0, b.nDebuffs or 0
   b.name:ClearAllPoints()
   if b.slim then
@@ -297,7 +302,7 @@ JH.PlaceText = PlaceText
 -- Re-place only when what is showing changed (aura updates come often)
 local function PlaceIcons(b)
   local key = (b.nHots or 0) * 100 + (b.nBuffs or 0) * 10 + (b.nDebuffs or 0) + (b.markerShown and 1000 or 0)
-              + (b.roleShown and 2000 or 0)
+              + (b.roleShown and 2000 or 0) + (b.tagShown and 4000 or 0)
   if b.placedKey == key then return end
   b.placedKey = key
   PlaceText(b)
@@ -609,6 +614,7 @@ function JH.LayoutButton(b)
   local font, flags = FONT_PATH[look.font] or FONT, FontFlags(look)
   if not b.name:SetFont(font, fs, flags) then b.name:SetFont(FONT, fs, flags); font = FONT end
   b.pct:SetFont(font, math.max(6, fs - 1), flags)
+  if b.tankTag then b.tankTag:SetFont(font, math.max(6, fs - 1), flags) end
   b.status:SetFont(font, fs, flags)
   b.name:SetJustifyH(look.nameAlign == "left" and "LEFT" or "CENTER")
   -- a dark shadow behind the text makes it readable on any bar colour
@@ -760,12 +766,11 @@ function JH.BuildVisuals(self)
   role:Hide()
   self.role = role
 
-  -- "Main tank" / "Off tank" just above the bar (only on bars in the tank group)
-  local tl = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  tl:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 1, 1)
-  tl:SetFont((GameFontNormalSmall and GameFontNormalSmall:GetFont()) or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-  tl:Hide()
-  self.tankLabel = tl
+  -- "MT" / "OT" on tank bars, left of the name (gold, like Blizzard's raid frames)
+  local tag = text:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  tag:SetTextColor(1, 0.82, 0)
+  tag:Hide()
+  self.tankTag = tag
 
   local name = text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   name:SetPoint("LEFT", 3, 0); name:SetPoint("RIGHT", -3, 0)
@@ -831,7 +836,7 @@ function FaithHeals_UnitOnLoad(self)
 
   self:SetScript("OnAttributeChanged", function(s, attr, value)
     if attr == "unit" then
-      if JH.tankHeader and s:GetParent() == JH.tankHeader then JH.tankDirty = true end
+      JH.tankDirty = true
       local okU, errU = pcall(SetUnit, s, value)
       if not okU then BarError("showing " .. tostring(value), errU) end
     end
@@ -930,9 +935,8 @@ function JH.SetButtonSize(w, h)
   s.w = math.floor(math.max(30, math.min(300, w)) + 0.5)
   s.h = math.floor(math.max(12, math.min(150, h)) + 0.5)
   for b in pairs(JH.buttons) do b:SetSize(s.w, s.h) end
-  for _, hdr in ipairs({ JH.ActiveHeader(), JH.tankHeader }) do
-    hdr:SetAttribute("unitsPerColumn", hdr:GetAttribute("unitsPerColumn")) -- re-layout
-  end
+  local hdr = JH.ActiveHeader()
+  hdr:SetAttribute("unitsPerColumn", hdr:GetAttribute("unitsPerColumn")) -- re-layout
   if JH.RefreshTest then JH.RefreshTest() end
   if JH.RefreshConfig then JH.RefreshConfig() end
 end
@@ -1045,13 +1049,7 @@ function JH.CreateHeader()
   JH.raidHeader:SetAttribute("showParty", false)
   JH.raidHeader:SetAttribute("showSolo", false)
   JH.raidHeader:SetAttribute("showPlayer", true)
-  -- Tanks on top: everyone who chose the tank role, or is Main Tank / Main Assist in the
-  -- raid. Party and raid. The other headers leave players with the tank role out.
-  JH.tankHeader = NewHeader("FaithHealsTanks", 5)
-  JH.tankHeader:SetAttribute("showPlayer", true)
-  JH.tankHeader:SetAttribute("minWidth", 0.1)   -- no tanks: takes no space
-  JH.tankHeader:SetAttribute("minHeight", 0.1)
-  JH.headers = { JH.partyHeader, JH.raidHeader, JH.tankHeader }
+  JH.headers = { JH.partyHeader, JH.raidHeader }
   JH.grip = CreateGrip()
   JH.AnchorGrip(JH.partyHeader)
 end
@@ -1075,8 +1073,13 @@ local function Arrange(h, per, cols, sp, grow)
   h:SetAttribute("unitsPerColumn", per) -- last: triggers the final re-layout
 end
 
-local function Sorting(h, sort, raid)
-  if sort == "role" then
+local function Sorting(h, sort, raid, tanksTop)
+  if tanksTop then
+    -- players with the tank role first, then everyone else (by role if sorting by role)
+    h:SetAttribute("groupBy", "ASSIGNEDROLE")
+    h:SetAttribute("groupingOrder", sort == "role" and "TANK,HEALER,DAMAGER,NONE" or "TANK")
+    h:SetAttribute("sortMethod", (sort == "name" or sort == "role") and "NAME" or "INDEX")
+  elseif sort == "role" then
     h:SetAttribute("groupBy", "ASSIGNEDROLE")
     h:SetAttribute("groupingOrder", "TANK,HEALER,DAMAGER,NONE")
     h:SetAttribute("sortMethod", "NAME")
@@ -1091,82 +1094,50 @@ local function Sorting(h, sort, raid)
   end
 end
 
--- Space above each tank bar for its "Main tank" / "Off tank" label
-local TANK_LABEL_H = 12
-JH.TANK_LABEL_H = TANK_LABEL_H
-
--- Every group and class, so "strict" filtering only leaves out by role
-local function AllGroupsAndClasses()
-  local classes = CLASS_SORT_ORDER or { "WARRIOR", "DEATHKNIGHT", "PALADIN", "MONK", "PRIEST", "SHAMAN",
-    "DRUID", "ROGUE", "MAGE", "WARLOCK", "HUNTER", "DEMONHUNTER", "EVOKER" }
-  return "1,2,3,4,5,6,7,8," .. table.concat(classes, ",")
+-- Tanks on top: in the same frame as everyone else, players with the tank role come
+-- first. "MT" / "OT" on their bars: Main Tank / Main Assist set by the raid leader win,
+-- otherwise the first tank is MT and the others OT.
+local function Assigned(u, what)
+  return GetPartyAssignment and GetPartyAssignment(what, u) and true or false
 end
 
-local function SetupTanks(on, sp, grow)
-  local t = JH.tankHeader
-  t:SetAttribute("showSolo", on)
-  t:SetAttribute("showParty", on)
-  t:SetAttribute("showRaid", on)
-  t:SetAttribute("roleFilter", "MAINTANK,MAINASSIST,TANK")
-  t:SetAttribute("sortMethod", "INDEX")
-  t:SetAttribute("columnSpacing", sp + 1)
-  t:SetAttribute("maxColumns", 1)
-  if grow == "right" then
-    t:SetAttribute("xOffset", sp); t:SetAttribute("yOffset", 0)
-    t:SetAttribute("columnAnchorPoint", "TOP"); t:SetAttribute("point", "LEFT")
-  else
-    t:SetAttribute("xOffset", 0); t:SetAttribute("yOffset", -(sp + TANK_LABEL_H))
-    t:SetAttribute("columnAnchorPoint", "LEFT"); t:SetAttribute("point", "TOP")
-  end
-  t:SetAttribute("unitsPerColumn", 5)
-  t:ClearAllPoints()
-  t:SetPoint("TOPLEFT", JH.mover, "BOTTOMLEFT", 0, -2 - TANK_LABEL_H)
-
-  local filter = on and AllGroupsAndClasses() or "1,2,3,4,5,6,7,8"
-  for _, h in ipairs({ JH.partyHeader, JH.raidHeader }) do
-    h:SetAttribute("strictFiltering", on and true or nil)
-    h:SetAttribute("roleFilter", on and "HEALER,DAMAGER,NONE" or nil)
-    h:SetAttribute("groupFilter", filter)
-    h:ClearAllPoints()
-    if on then
-      h:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, -sp)
-    else
-      h:SetPoint("TOPLEFT", JH.mover, "BOTTOMLEFT", 0, -2)
-    end
-  end
-  JH.tankDirty = true
+local function IsTank(u)
+  if Assigned(u, "MAINTANK") or Assigned(u, "MAINASSIST") then return true end
+  local ok, role = pcall(UnitGroupRolesAssigned, u)
+  return ok and not IsSecret(role) and role == "TANK"
 end
 
--- "Main tank" / "Off tank" over the bars in the tank group. Main Tank / Main Assist
--- set by the raid leader win; otherwise the first tank is the main tank.
 function JH.UpdateTankLabels()
   JH.tankDirty = false
   local on = JH.db and JH.db.layout.tanksTop ~= false
-  local t = JH.tankHeader
-  for b in pairs(JH.buttons) do
-    if b.tankLabel and b:GetParent() ~= t then b.tankLabel:Hide() end
-  end
-  if not t then return end
-  local shown, hasMT = {}, false
-  for i = 1, 5 do
-    local b = t:GetAttribute("child" .. i)
-    if b and b.tankLabel then
-      if on and b.unit and b:IsShown() then
-        shown[#shown + 1] = b
-        if GetPartyAssignment and GetPartyAssignment("MAINTANK", b.unit) then hasMT = true end
-      else
-        b.tankLabel:Hide()
+  local hdr = JH.ActiveHeader and JH.ActiveHeader()
+  local tags, tanks, hasMT = {}, {}, false
+  if on and hdr and IsInGroup() then
+    for i = 1, hdr.maxUnits or 40 do
+      local b = hdr:GetAttribute("child" .. i)
+      if not b then break end
+      if b.unit and b:IsShown() and UnitExists(b.unit) and IsTank(b.unit) then
+        tanks[#tanks + 1] = b
+        if Assigned(b.unit, "MAINTANK") then hasMT = true end
       end
     end
+    for i, b in ipairs(tanks) do
+      if Assigned(b.unit, "MAINTANK") then tags[b] = "MT"
+      elseif Assigned(b.unit, "MAINASSIST") then tags[b] = "OT"
+      elseif i == 1 and not hasMT then tags[b] = "MT"
+      else tags[b] = "OT" end
+    end
   end
-  for i, b in ipairs(shown) do
-    local text
-    if GetPartyAssignment and GetPartyAssignment("MAINTANK", b.unit) then text = "Main tank"
-    elseif GetPartyAssignment and GetPartyAssignment("MAINASSIST", b.unit) then text = "Off tank"
-    elseif i == 1 and not hasMT then text = "Main tank"
-    else text = "Off tank" end
-    b.tankLabel:SetText(text)
-    b.tankLabel:Show()
+  for b in pairs(JH.buttons) do
+    if b.tankTag then
+      local t = tags[b]
+      if t then b.tankTag:SetText(t) end
+      b.tankTag:SetShown(t ~= nil)
+      if b.tagShown ~= (t ~= nil) then
+        b.tagShown = (t ~= nil); b.placedKey = nil
+        if JH.PlaceIcons then JH.PlaceIcons(b) end
+      end
+    end
   end
 end
 
@@ -1183,10 +1154,12 @@ function JH.ApplyLayout()
   local p, r = JH.partyHeader, JH.raidHeader
   p:SetAttribute("showSolo", L.solo ~= false)
   p:SetAttribute("showPlayer", L.player ~= false)
-  SetupTanks(L.tanksTop ~= false, sp, L.grow)
-  JH.tankHeader:SetAttribute("showPlayer", L.player ~= false)
-  Sorting(p, L.sort, false)
-  Sorting(r, L.sort, true)
+  p:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  r:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
+  local tanks = L.tanksTop ~= false
+  Sorting(p, L.sort, false, tanks)
+  Sorting(r, L.sort, true, tanks)
+  JH.tankDirty = true
   Arrange(p, per, cols, sp, L.grow)
   Arrange(r, per, cols, sp, L.grow)
   if not JH.testCount then JH.AnchorGrip(JH.ActiveHeader()) end

@@ -149,69 +149,53 @@ function JH.RefreshTest()
   local right = (L.grow == "right")
   local data = MakeData(n)
 
-  -- tanks on top (like the real bars): their own block with "Main tank" / "Off tank"
-  local tanks, rest = {}, {}
+  -- tanks on top (like the real bars): same block, tanks first, "MT" / "OT" on them
   if L.tanksTop ~= false then
+    local tanks, rest = {}, {}
     for _, d in ipairs(data) do
       if d.role == "TANK" then tanks[#tanks + 1] = d else rest[#rest + 1] = d end
     end
-  else
-    rest = data
+    for _, d in ipairs(rest) do tanks[#tanks + 1] = d end
+    data = tanks
   end
-  local LH = JH.TANK_LABEL_H or 12
-  local nT = #tanks
-  local tankH = 0
-  if nT > 0 then
-    tankH = right and (LH + h + sp) or (nT * (LH + h + sp))
-  end
+  local seenTank = 0
 
   container:SetScale(db.scale or 1)
-  local function Bar(i)
+  for i = 1, n do
     local b = frames[i]
     if not b then
       b = CreateFrame("Frame", nil, container)
       JH.BuildVisuals(b)
       frames[i] = b
     end
+    local along, across = (i - 1) % per, math.floor((i - 1) / per)
     b:ClearAllPoints()
     b:SetSize(w, h)
-    return b
-  end
-  for i, d in ipairs(tanks) do
-    local b = Bar(i)
     if right then
-      b:SetPoint("TOPLEFT", (i - 1) * (w + sp), -LH)
+      b:SetPoint("TOPLEFT", along * (w + sp), -across * (h + sp + 1))
     else
-      b:SetPoint("TOPLEFT", 0, -LH - (i - 1) * (h + sp + LH))
+      b:SetPoint("TOPLEFT", across * (w + sp + 1), -along * (h + sp))
     end
     JH.StyleButton(b)
-    Fill(b, d)
-    b.tankLabel:SetText(i == 1 and "Main tank" or "Off tank")
-    b.tankLabel:Show()
-    b:Show()
-  end
-  for k, d in ipairs(rest) do
-    local b = Bar(nT + k)
-    local along, across = (k - 1) % per, math.floor((k - 1) / per)
-    if right then
-      b:SetPoint("TOPLEFT", along * (w + sp), -tankH - across * (h + sp + 1))
-    else
-      b:SetPoint("TOPLEFT", across * (w + sp + 1), -tankH - along * (h + sp))
+    local d = data[i]
+    local tag
+    if L.tanksTop ~= false and d.role == "TANK" then
+      seenTank = seenTank + 1
+      tag = seenTank == 1 and "MT" or "OT"
     end
-    JH.StyleButton(b)
+    if tag then b.tankTag:SetText(tag) end
+    b.tankTag:SetShown(tag ~= nil)
+    b.tagShown = tag ~= nil
     Fill(b, d)
-    b.tankLabel:Hide()
     b:Show()
   end
   for i = n + 1, #frames do frames[i]:Hide() end
 
-  local m = math.max(1, #rest)
-  local along, across = math.min(m, per), math.ceil(m / per)
-  local tw = right and (nT * (w + sp) - sp) or w
+  local along, across = math.min(n, per), math.ceil(n / per)
   if right then
-    container:SetSize(math.max(tw, along * (w + sp) - sp), tankH + across * (h + sp + 1) - sp - 1)
+    container:SetSize(along * (w + sp) - sp, across * (h + sp + 1) - sp - 1)
   else
-    container:SetSize(across * (w + sp + 1) - sp - 1, tankH + along * (h + sp) - sp)
+    container:SetSize(across * (w + sp + 1) - sp - 1, along * (h + sp) - sp)
   end
 end
 

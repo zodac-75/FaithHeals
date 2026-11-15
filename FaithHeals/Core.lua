@@ -57,7 +57,7 @@ JH.defaults = {
              showDebuffs = false, debuffs = "all", debuffMax = 3, dispel = true },
   -- how the bars are arranged
   layout = { grow = "down", sort = "group", spacing = 2, solo = true, player = true,
-             tanksTop = true },  -- tanks in their own group on top, with Main tank / Off tank
+             tanksTop = true },  -- tank role first in the frame, "MT" / "OT" on their bars
   rangeAlpha = 0.4,
   pos    = { "TOPLEFT", "TOPLEFT", 40, -260 },
   locked = true,

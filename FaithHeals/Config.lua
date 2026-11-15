@@ -598,7 +598,7 @@ local function BuildLook(p)
   local me = add(NewCheck(p, "Show myself in the party",
     function() return E.layout.player ~= false end, function(v) E.layout.player = v end))
   me:SetPoint("TOPLEFT", rx - 4, y - 142)
-  local tanks = add(NewCheck(p, "Tanks on top (Main tank / Off tank)",
+  local tanks = add(NewCheck(p, "Tanks on top, marked MT / OT",
     function() return E.layout.tanksTop ~= false end, function(v) E.layout.tanksTop = v end))
   tanks:SetPoint("TOPLEFT", rx - 4, y - 166)
 
