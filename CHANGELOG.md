@@ -1,3 +1,14 @@
+# FaithHeals 0.3.1-beta
+
+### Fixed
+- HoT, buff and debuff icons could stop updating in combat. Aura values that the game hides in combat are now checked before they are used, and icons fall back to reading the auras one by one.
+- Errors while updating the icons are caught and shown by `/fh debug` instead of stopping the icons.
+
+### New
+- `/fh auras` shows what the game reports about buffs and debuffs, in and out of combat. Please include it when you report icon problems.
+
+Incoming heals in combat are still being looked at: `/fh heals` output helps.
+
 # FaithHeals 0.3.0-beta
 
 First beta. A new Spells tab, many new look options, and click-casting fixes.

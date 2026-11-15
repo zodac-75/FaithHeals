@@ -105,8 +105,11 @@ BigWigs packager (branch v2, `-g 1.60.1`), uploads it to CurseForge (project 180
 - **Settings migrations**: `db.version` in `InitDB` (Core.lua). Bump it and migrate when a setting
   changes shape. Every `db.look` key must be in both `JH.defaults.look` and `DEFAULT_LOOK` (Frames.lua).
 - **Debug commands**: `/fh debug`, `/fh binds`, `/fh clicks` (what each click does, which unit, the
-  target afterwards), `/fh heals` (incoming-heal API, events and values).
-- **Open (0.3.0-beta)**: incoming heals may not show in combat. Ask for `/fh heals` output; if
+  target afterwards), `/fh heals` (incoming-heal API, events and values), `/fh auras` (aura lists,
+  which fields are secret, the last icon error).
+- **Never test a possibly-secret value** (`if v then`, `v and ...`, `v ~= nil`) before `IsSecret(v)`:
+  that broke the icons in combat (fixed in 0.3.1-beta).
+- **Open (0.3.1-beta)**: incoming heals may not show in combat. Ask for `/fh heals` output; if
   `UnitGetIncomingHeals`/`UNIT_HEAL_PREDICTION` don't work in Forever, estimate own heals or use
   LibHealComm-style addon messages.
 - Older note: not tested in the game as of 0.1.0-alpha. The parts that depend on new Midnight APIs

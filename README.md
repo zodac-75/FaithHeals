@@ -29,7 +29,7 @@ Ships with a Restoration Druid setup, but works for any healer.
 | `/fh unlock` / `/fh lock` | Move and resize the frames |
 | `/fh scale 1.2` | Scale everything |
 | `/fh debug`, `/fh binds` | What FaithHeals sees, and what each binding does |
-| `/fh clicks`, `/fh heals` | Print what each click does / what the game reports about incoming heals |
+| `/fh clicks`, `/fh heals`, `/fh auras` | Print what each click does / what the game reports about incoming heals / about buffs and debuffs |
 | `/fh reset` | Back to defaults |
 
 ## Build and release
