@@ -1074,24 +1074,29 @@ local function Arrange(h, per, cols, sp, grow)
 end
 
 local function Sorting(h, sort, raid, tanksTop)
+  -- Every SetAttribute makes the header re-sort at once, so the order matters:
+  -- groupingOrder BEFORE groupBy when grouping (Blizzard's code reads it as soon as
+  -- groupBy is set and errors on nil), and groupBy cleared BEFORE groupingOrder.
+  local by, order, method
   if tanksTop then
     -- players with the tank role first, then everyone else (by role if sorting by role)
-    h:SetAttribute("groupBy", "ASSIGNEDROLE")
-    h:SetAttribute("groupingOrder", sort == "role" and "TANK,HEALER,DAMAGER,NONE" or "TANK")
-    h:SetAttribute("sortMethod", (sort == "name" or sort == "role") and "NAME" or "INDEX")
+    by, order = "ASSIGNEDROLE", (sort == "role") and "TANK,HEALER,DAMAGER,NONE" or "TANK"
+    method = (sort == "name" or sort == "role") and "NAME" or "INDEX"
   elseif sort == "role" then
-    h:SetAttribute("groupBy", "ASSIGNEDROLE")
-    h:SetAttribute("groupingOrder", "TANK,HEALER,DAMAGER,NONE")
-    h:SetAttribute("sortMethod", "NAME")
+    by, order, method = "ASSIGNEDROLE", "TANK,HEALER,DAMAGER,NONE", "NAME"
   elseif sort == "group" and raid then
-    h:SetAttribute("groupBy", "GROUP")
-    h:SetAttribute("groupingOrder", "1,2,3,4,5,6,7,8")
-    h:SetAttribute("sortMethod", "INDEX")
+    by, order, method = "GROUP", "1,2,3,4,5,6,7,8", "INDEX"
+  else
+    by, order, method = nil, nil, (sort == "name") and "NAME" or "INDEX"
+  end
+  if by then
+    h:SetAttribute("groupingOrder", order)
+    h:SetAttribute("groupBy", by)
   else
     h:SetAttribute("groupBy", nil)
     h:SetAttribute("groupingOrder", nil)
-    h:SetAttribute("sortMethod", sort == "name" and "NAME" or "INDEX")
   end
+  h:SetAttribute("sortMethod", method)
 end
 
 -- Tanks on top: in the same frame as everyone else, players with the tank role come
