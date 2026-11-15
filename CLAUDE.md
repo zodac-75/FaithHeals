@@ -107,6 +107,8 @@ BigWigs packager (branch v2, `-g 1.60.1`), uploads it to CurseForge (project 180
 - **Group header attributes**: every `SetAttribute` re-sorts the header at once. Set `groupingOrder`
   BEFORE `groupBy` (Blizzard errors on a nil groupingOrder, SecureGroupHeaders.lua:467) and clear
   `groupBy` before `groupingOrder` (see `Sorting` in Frames.lua).
+- **The mover is protected in combat** (the bars hang on it): never call StartMoving/StopMovingOrSizing
+  on it in combat; a drag still going is finished on `PLAYER_REGEN_DISABLED`.
 - **Settings migrations**: `db.version` in `InitDB` (Core.lua). Bump it and migrate when a setting
   changes shape. Every `db.look` key must be in both `JH.defaults.look` and `DEFAULT_LOOK` (Frames.lua).
 - **Debug commands**: `/fh debug`, `/fh binds`, `/fh clicks` (what each click does, which unit, the
