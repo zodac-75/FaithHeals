@@ -6,6 +6,13 @@ themes, layout options and test bars. README.md has the overview.
 
 ## How the owner wants it
 
+- **Handover for new sessions**: `Z:\FaithHeals\Claude\CLAUDE.md` (Swedish) has where everything
+  lives, the workflow and **the current state**; `Z:\FaithHeals\Claude\Starta-ny-session.txt` is the
+  text he pastes into a new chat. **Update the "Läge just nu" section there after every change, test
+  and release.**
+- **Unreleased work goes on the `dev` branch** (push it so it survives between sessions; only `main`
+  releases). Merge to `main` with the CHANGELOG bump when he says go.
+
 - He writes Swedish or English: answer in the same language.
 - **Test on his PC before pushing.** Build, run the checks, install the changed files on his PC
   (when the chat is linked to it) and tell him what to test. Commit and push only after he says
