@@ -1,3 +1,18 @@
+# FaithHeals 0.3.2-beta
+
+### New
+- **Tanks on top:** players with the tank role come first in the frame (party and raid), marked **MT** / **OT** left of the name. Main Tank / Main Assist set by the raid leader decide MT / OT; otherwise the first tank is MT. Toggle: Look & layout > "Tanks on top, marked MT / OT".
+- **Healer icon:** a small icon on healers in your group. Toggle: Bars & text > "Show a healer icon on healers".
+- The test bars (`/fh test 20`) show both.
+
+### Fixed
+- Dragging the frames when combat started gave an "action blocked" error. A drag still going is now finished just before combat starts.
+
+### Note
+- With tanks on top, a raid is not also sorted by raid group (the frame can only group by one thing). Turn "Tanks on top" off to sort by raid group again.
+
+Incoming heals in combat are still being looked at: `/fh heals` output helps.
+
 # FaithHeals 0.3.1-beta
 
 ### Fixed

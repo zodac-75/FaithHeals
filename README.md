@@ -11,6 +11,7 @@ CurseForge: [FaithHeals](https://www.curseforge.com/wow/addons/faithheals) (proj
 - Built for 12-button MMO mice: thumb buttons and the wheel cast on the bar under your cursor, and keep their normal job everywhere else
 - Hover a bar to see what every button casts with the modifier you are holding
 - Health %, incoming heals, target highlight, range fade, raid markers
+- Tanks on top of the frame, marked MT / OT, and a small icon on healers
 - Icons with one toggle each: your HoTs, buffs, debuffs (all or dispellable), each with its own max and size
 - Four themes, plus font, text size, colours, outline, shadow, background and fill direction
 - Test bars (`/fh test 20`) to set up look and layout without a group
