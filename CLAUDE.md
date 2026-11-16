@@ -40,13 +40,15 @@ themes, layout options and test bars. README.md has the overview.
 - **Check the upload** after a push:
   `gh api 'repos/zodac-75/FaithHeals/actions/runs?per_page=1'` then
   `gh run view <id> -R zodac-75/FaithHeals --log | grep Uploading` (`gh run list` doesn't work here).
-- **CurseForge description**: `docs/curseforge.html`. Update it when a real feature lands (not for
-  small fixes), in the built-in browser where he is logged in
-  (authors.curseforge.com/#/projects/1805340/description). The editor is TinyMCE:
-  `tinymce.activeEditor.setContent(html)` without the final ".", type the "." with a real
-  keystroke, then click Save and check "Changes saved successfully". Wait until the editor content
-  starts with `<h2>FaithHeals</h2>` before editing (the page is an SPA and keeps the old text for
-  a moment). If logged out, tell him; don't log in.
+- **CurseForge description**: `docs/curseforge.md` (Markdown; `docs/curseforge.html` is the same text
+  as HTML). Update it when a real feature lands (not for small fixes), in **Chrome** (Claude in Chrome)
+  where he is logged in: authors.curseforge.com/#/projects/1805340/description. This project's editor
+  is **Markdown** (`textarea.mde-text`, not TinyMCE): set the value with the native value setter +
+  an `input` event, leave out the final ".", type the "." with a real keystroke, click Save and check
+  "Changes saved successfully". If logged out, tell him; don't log in.
+- **Pinned comment** on the project page (www.curseforge.com/wow/addons/faithheals/comments, Chrome):
+  the beta welcome + how to report problems, posted and pinned 2026-11-16. Update it (Edit in the
+  comment's "More Options" menu) when the "New in" / "Known" lines change.
 - Screenshots on CurseForge are real ones from the game that he takes himself. Never use
   AI-generated images as screenshots.
 - **Jennie** (plays/tests it) needs **health %** and **incoming heals** on the bars: never break them.
