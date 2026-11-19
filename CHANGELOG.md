@@ -1,3 +1,11 @@
+# FaithHeals 0.3.3-beta
+
+### Fixed
+- **Incoming heals** rewritten. In WoW Forever the game hides incoming-heal amounts from addons, so FaithHeals now asks the game's own heal prediction calculator, which also stops the green bar at full health. Errors here can no longer stop the health bar from updating.
+
+### Debug
+- `/fh heals` now shows which method is used, the last error and whether the green bar is shown, for every bar and every heal. If incoming heals still don't show for you, please post its output.
+
 # FaithHeals 0.3.2-beta
 
 ### New

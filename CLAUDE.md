@@ -118,9 +118,13 @@ BigWigs packager (branch v2, `-g 1.60.1`), uploads it to CurseForge (project 180
   which fields are secret, the last icon error).
 - **Never test a possibly-secret value** (`if v then`, `v and ...`, `v ~= nil`) before `IsSecret(v)`:
   that broke the icons in combat (fixed in 0.3.1-beta).
-- **Open (0.3.2-beta)**: incoming heals may not show in combat. Ask for `/fh heals` output; if
-  `UnitGetIncomingHeals`/`UNIT_HEAL_PREDICTION` don't work in Forever, estimate own heals or use
-  LibHealComm-style addon messages.
+- **Incoming heals (0.3.3-beta)**: Forever's API docs (Gethe/wow-ui-source, branch `forever`) say
+  `UnitGetIncomingHeals` always returns a secret to addons (nil = nothing). We use the heal prediction
+  calculator first (`CreateUnitHealPredictionCalculator` + `UnitGetDetailedHealPrediction(u, "player",
+  calc)`, clamp `MissingHealth`, overflow 1.0, `calc:GetIncomingHeals()`), then UnitGetIncomingHeals;
+  every widget call is pcall'd. Released without an in-game test: if it still doesn't show, ask for
+  `/fh heals` ("used:" and "last incoming-heal error:" lines). Blizzard's UI source for Forever is the
+  `forever` branch of github.com/Gethe/wow-ui-source (API docs in Blizzard_APIDocumentationGenerated).
 - Older note: not tested in the game as of 0.1.0-alpha. The parts that depend on new Midnight APIs
   (health-colour curve, `UnitHealthPercent`, `SetAlphaFromBoolean`, aura duration objects) are
   guarded and fall back quietly; if one doesn't work in the game, fix that first.
