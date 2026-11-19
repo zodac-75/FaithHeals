@@ -173,15 +173,63 @@ end
 
 -- Incoming heals: a second bar that starts where the health fill ends. It uses the
 -- same 0..max health scale, so no maths is needed (works with secret values too).
+--
+-- In Forever the amounts are always secret to addons. Blizzard's own frames do maths on
+-- them (their code is allowed to); we can't. So, as Blizzard's API docs for addons say:
+--  1. heal prediction calculator (CreateUnitHealPredictionCalculator +
+--     UnitGetDetailedHealPrediction): the game itself clamps the amount to the missing
+--     health, so the bar stops at full health without any maths on our side;
+--  2. fallback: UnitGetIncomingHeals (nil = nothing incoming).
+-- Every widget call is guarded: an error here must never stop the health update.
+-- JH.healPath / JH.healError say what happened (shown by /fh heals).
+local CLAMP_MISSING = (Enum and Enum.UnitIncomingHealClampMode and Enum.UnitIncomingHealClampMode.MissingHealth) or 0
+
+local function HealCalculator(b)
+  if b.healCalc ~= nil then return b.healCalc or nil end
+  b.healCalc = false
+  if not (CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction) then return nil end
+  local ok, c = pcall(CreateUnitHealPredictionCalculator)
+  if not ok or not c then JH.healError = "calculator: " .. tostring(c); return nil end
+  pcall(c.SetIncomingHealClampMode, c, CLAMP_MISSING)
+  pcall(c.SetIncomingHealOverflowPercent, c, 1.0)   -- never past full health
+  b.healCalc = c
+  return c
+end
+
+-- the incoming amount for unit u (may be secret), or nil when there is nothing to show
+function JH.IncomingAmount(b, u)
+  local c = b and HealCalculator(b)
+  if c then
+    local ok, err = pcall(UnitGetDetailedHealPrediction, u, "player", c)
+    if ok then
+      local okI, amount = pcall(c.GetIncomingHeals, c)
+      if okI then JH.healPath = "calculator"; return amount end
+      err = amount
+    end
+    JH.healError = "calculator: " .. tostring(err)
+  end
+  if not UnitGetIncomingHeals then JH.healPath = "none"; return nil end
+  local ok, v = pcall(UnitGetIncomingHeals, u)
+  JH.healPath = "UnitGetIncomingHeals"
+  if not ok then JH.healError = "UnitGetIncomingHeals: " .. tostring(v); return nil end
+  if not IsSecret(v) and type(v) ~= "number" then return nil end   -- nil: nothing incoming
+  return v
+end
+
 local function UpdateIncoming(b, u)
   local inc = b.inc
   if not inc then return end
-  if Look().inc == false or not UnitGetIncomingHeals then return inc:Hide() end
-  local ok, v = pcall(UnitGetIncomingHeals, u)
-  if not ok or (not IsSecret(v) and type(v) ~= "number") then return inc:Hide() end
-  inc:SetMinMaxValues(0, UnitHealthMax(u))
-  inc:SetValue(v)
-  inc:Show()
+  if Look().inc == false then return inc:Hide() end
+  local amount = JH.IncomingAmount(b, u)
+  if not IsSecret(amount) and amount == nil then return inc:Hide() end  -- secret check first
+  local okM, errM = pcall(inc.SetMinMaxValues, inc, 0, UnitHealthMax(u))
+  local okV, errV = pcall(inc.SetValue, inc, amount)
+  if okM and okV then
+    inc:Show()
+  else
+    JH.healError = "bar: " .. tostring(errM or errV)
+    inc:Hide()
+  end
 end
 
 local function UpdateHealth(b)
@@ -1200,17 +1248,18 @@ end
 JH.healEvents = 0
 local hev = CreateFrame("Frame")
 JH.healEventOK = pcall(hev.RegisterEvent, hev, "UNIT_HEAL_PREDICTION")
-local function HealValue(u)
-  if not UnitGetIncomingHeals then return "no function" end
-  local ok, v = pcall(UnitGetIncomingHeals, u)
-  if not ok then return "error: " .. tostring(v) end
-  if IsSecret(v) then return "secret (hidden in combat)" end
+local function HealValue(u, b)
+  local v = JH.IncomingAmount(b, u)
+  if IsSecret(v) then return "secret (normal in Forever, the bar can still draw it)" end
   return tostring(v)
 end
 hev:SetScript("OnEvent", function(_, _, unit)
   JH.healEvents = JH.healEvents + 1
   if JH.debugHeals and type(unit) == "string" and (unit == "player" or unit:match("^party%d") or unit:match("^raid%d")) then
-    JH.Print(("heal event: %s [%s] incoming=%s"):format(unit, tostring(UnitName(unit)), HealValue(unit)))
+    local bar
+    for b in pairs(JH.buttons) do if b.unit == unit and b:IsVisible() then bar = b; break end end
+    JH.Print(("heal event: %s [%s] incoming=%s, green bar %s"):format(unit, tostring(UnitName(unit)),
+      HealValue(unit, bar), (bar and bar.inc and bar.inc:IsShown()) and "shown" or "hidden"))
   end
 end)
 
@@ -1219,12 +1268,13 @@ function JH.HealsReport()
   P("--- incoming heals ---")
   P(("UnitGetIncomingHeals: %s | UNIT_HEAL_PREDICTION: %s | heal events seen: %d"):format(
     UnitGetIncomingHeals and "yes" or "MISSING", JH.healEventOK and "ok" or "NOT AVAILABLE", JH.healEvents))
-  P(("newer API: UnitGetDetailedHealPrediction=%s CreateUnitHealPredictionCalculator=%s | setting: %s"):format(
-    tostring(UnitGetDetailedHealPrediction ~= nil), tostring(CreateUnitHealPredictionCalculator ~= nil),
-    (JH.db and JH.db.look.inc == false) and "OFF" or "on"))
+  P(("calculator API: %s | setting: %s | used: %s"):format(
+    (UnitGetDetailedHealPrediction and CreateUnitHealPredictionCalculator) and "yes" or "MISSING",
+    (JH.db and JH.db.look.inc == false) and "OFF" or "on", tostring(JH.healPath or "not yet")))
+  P("last incoming-heal error: " .. tostring(JH.healError or "none"))
   for b in pairs(JH.buttons) do
     if b:IsVisible() and b.unit then
-      P(("%s [%s]: incoming=%s, green bar %s"):format(b.unit, tostring(UnitName(b.unit)), HealValue(b.unit),
+      P(("%s [%s]: incoming=%s, green bar %s"):format(b.unit, tostring(UnitName(b.unit)), HealValue(b.unit, b),
         (b.inc and b.inc:IsShown()) and "shown" or "hidden"))
     end
   end
