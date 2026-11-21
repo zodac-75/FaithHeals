@@ -34,4 +34,4 @@
 
 Type `/fh` to open the settings. It comes with a Restoration Druid setup, but you can put any healer's spells on any button.
 
-**This is a beta.** Please report problems in the comments (`/fh debug` helps)
+Please report problems in the comments (`/fh debug` helps)

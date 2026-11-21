@@ -1,3 +1,13 @@
+# FaithHeals 0.3.4
+
+First full release (no longer beta).
+
+### New
+- **Follow** as a bar action (Spells tab > Actions): bind it to a click or a key, and it follows the group member under the mouse.
+
+### Since 0.3.2
+- **Incoming heals** use the game's own heal prediction. If they don't show for you in combat, please post `/fh heals`.
+
 # FaithHeals 0.3.4-beta
 
 ### New

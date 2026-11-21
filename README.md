@@ -49,6 +49,6 @@ repository secret `CF_API_KEY`.
 
 ## Status
 
-Beta. Tested in the game, but not everything in combat yet. Please report problems as issues (`/fh debug` helps).
+Released. Tested in the game; incoming heals in combat are not confirmed yet. Please report problems as issues (`/fh debug` helps).
 
 Licensed under GPL-3.0.
