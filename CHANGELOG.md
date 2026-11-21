@@ -1,3 +1,8 @@
+# FaithHeals 0.3.4-beta
+
+### New
+- **Follow** as a bar action (Spells tab > Actions): bind it to a click or a key, and it follows the group member under the mouse.
+
 # FaithHeals 0.3.3-beta
 
 ### Fixed
