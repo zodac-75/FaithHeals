@@ -13,13 +13,14 @@ JH.buttons = {}      -- unit frames created by the group header
 --   BUTTON1..BUTTON5          a mouse click on a bar
 --   anything else             a key (or the wheel) pressed while the mouse is over a bar,
 --                             e.g. "1" from an MMO mouse thumb button, "MOUSEWHEELUP"
--- action: "spell", "target", "focus", "assist", "menu", "trade"
+-- action: "spell", "target", "focus", "assist", "follow", "menu", "trade"
 -- A spell without id casts your highest rank.
 ---------------------------------------------------------------------------
 JH.ACTIONS = {
   { id = "target", label = "Target" },
   { id = "focus",  label = "Set focus" },
   { id = "assist", label = "Assist" },
+  { id = "follow", label = "Follow" },
   { id = "menu",   label = "Unit menu" },
   { id = "trade",  label = "Trade" },
 }
@@ -255,11 +256,12 @@ local MACRO = {
   target = "/target [@mouseover,exists]",
   focus  = "/focus [@mouseover,exists]",
   assist = "/assist [@mouseover,exists]",
+  follow = "/follow [@mouseover,exists]",
 }
 -- The command itself. Right before each click the bar writes "<command> <its unit>"
 -- (e.g. "/target party1") into the macro, see ON_CLICK below. The mouseover macro
 -- above is only the fallback.
-local COMMAND = { target = "/target", focus = "/focus", assist = "/assist" }
+local COMMAND = { target = "/target", focus = "/focus", assist = "/assist", follow = "/follow" }
 local function SecureAction(b)
   if b.action == "spell" then
     if b.id then return "spell", "spell", tostring(b.id) end
@@ -420,7 +422,7 @@ local ON_ENTER = [[
 ]]
 local ON_LEAVE = [[ self:ClearBindings() ]]
 
--- Runs securely right before every click (also in combat): for target / focus / assist
+-- Runs securely right before every click (also in combat): for target / focus / assist / follow
 -- bindings it writes the command with this bar's own unit into the macro, e.g.
 -- "/target party1", so it never depends on the mouseover.
 local ON_CLICK = [[
@@ -487,6 +489,7 @@ local function ApplyFallback(combos)
     elseif b.action == "target" then text = "/target [@mouseover,exists]"
     elseif b.action == "focus" then text = "/focus [@mouseover,exists][]"
     elseif b.action == "assist" then text = "/assist [@mouseover,exists][]"
+    elseif b.action == "follow" then text = "/follow [@mouseover,exists][]"
     end
     if text then
       fb:SetAttribute("type", "macro")
